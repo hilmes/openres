@@ -370,6 +370,7 @@ export function BookingWidget({
       </span>
       {selection && (
         <Modal
+          busy={busy}
           title={
             selection.waitlist ? "Join the waitlist" : `Reserve at ${venue.name}`
           }

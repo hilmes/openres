@@ -89,6 +89,18 @@ export async function security(c) {
     const actions = (await client.query('SELECT action FROM openres_access_audit')).rows.map(r => r.action);
     assert(actions.includes('guest_history_view')); assert(actions.includes('reservation_export'));
   });
+  await check('staff see venue-only repeat counts without receiving historical contact records', async () => {
+    const past = { ...created.data.reservation, id: randomUUID(), date: '2025-01-01', status: 'completed', notes: 'Historical-only private note', staffNotes: 'Historical-only staff note' };
+    await client.query('INSERT INTO openres_reservations VALUES ($1,$2,$3,$4)', [past.id, past.date, past.email, JSON.stringify(past)]);
+    const desk = await request(`/api/openres/desk?date=${day}`, { cookie: host.cookie });
+    assert.equal(desk.status, 200);
+    assert.deepEqual(desk.data.visitSummaries[input.id], { completedVisits: 1, lastVisit: '2025-01-01', matchedBy: 'email' });
+    assert(!desk.text.includes('Historical-only'));
+    assert(!desk.data.reservations.some(r => r.id === past.id));
+    const guest = await request(path, { headers });
+    assert(!('visitSummaries' in guest.data));
+    assert(!('visitSummary' in guest.data.reservation));
+  });
   await check('sensitive responses disable caching and provide protective headers', async () => {
     for (const result of [await request(path, { headers }), await request('/api/openres/desk', { cookie: host.cookie })]) {
       assert(result.headers.get('cache-control').includes('no-store'));

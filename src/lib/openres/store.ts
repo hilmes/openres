@@ -11,7 +11,9 @@ import {
   venueNow,
   type Reservation,
   type Settings,
+  type VisitSummary,
 } from "./model";
+import { visitorContact } from "./visitors";
 
 export function localMode() {
   return (
@@ -37,6 +39,7 @@ function getLocalDb() {
     join(process.cwd(), ".openres", "preview.sqlite");
   mkdirSync(dirname(file), { recursive: true });
   localDb = new Database(file);
+  localDb.function("openres_phone_digits", { deterministic: true }, (phone: unknown) => String(phone || "").replace(/\D/g, ""));
   localDb.pragma("journal_mode = WAL");
   localDb.pragma("busy_timeout = 5000");
   localDb.exec(
@@ -169,6 +172,49 @@ export async function readReservations(date?: string): Promise<Reservation[]> {
     connection.release();
   }
 }
+/** Count retained completed visits without exposing historical contacts or notes. */
+export async function readVisitSummaries(records: Reservation[]): Promise<Record<string, VisitSummary>> {
+  const result: Record<string, VisitSummary> = {};
+  const targets = records.flatMap(record => {
+    const contact = visitorContact(record);
+    result[record.id] = { completedVisits: 0, lastVisit: null, matchedBy: contact?.kind || null };
+    return contact ? [{ record, contact }] : [];
+  });
+  if (!targets.length) return result;
+  const connection = await connect();
+  try {
+    const status = localMode() ? "json_extract(h.payload, '$.status')" : "h.payload->>'status'";
+    const time = localMode() ? "json_extract(h.payload, '$.time')" : "h.payload->>'time'";
+    const phone = localMode()
+      ? "openres_phone_digits(json_extract(h.payload, '$.phone'))"
+      : "regexp_replace(COALESCE(h.payload->>'phone', ''), '[^0-9]', '', 'g')";
+    // Bound batches keep SQLite/PostgreSQL parameter counts small for large services.
+    for (let start = 0; start < targets.length; start += 100) {
+      const batch = targets.slice(start, start + 100);
+      const params: string[] = [];
+      const values = batch.map(({ record, contact }) => {
+        const offset = params.length;
+        params.push(record.id, record.date, record.time, contact.kind, contact.value);
+        return `(${Array.from({ length: 5 }, (_, i) => `$${offset + i + 1}`).join(',')})`;
+      }).join(',');
+      const { rows } = await connection.query(`
+        WITH targets(id, visit_date, visit_time, kind, contact) AS (VALUES ${values})
+        SELECT t.id, COUNT(h.id) AS visits, MAX(h.service_date) AS last_visit
+        FROM targets t LEFT JOIN openres_reservations h ON
+          ${status} = 'completed' AND h.id <> t.id
+          AND (h.service_date < t.visit_date OR (h.service_date = t.visit_date AND ${time} < t.visit_time))
+          AND ((t.kind = 'email' AND lower(trim(h.email)) = t.contact)
+            OR (t.kind = 'phone' AND trim(h.email) = '' AND ${phone} = t.contact))
+        GROUP BY t.id`, params);
+      for (const row of rows) {
+        const id = String(row.id);
+        result[id] = { ...result[id], completedVisits: Number(row.visits), lastVisit: row.last_visit ? String(row.last_visit) : null };
+      }
+    }
+    return result;
+  } finally { connection.release(); }
+}
+
 /** Availability is an advisory read; booking mutations always recheck under the lock. */
 export async function readAvailabilityInventory(date: string) {
   const connection = await connect();

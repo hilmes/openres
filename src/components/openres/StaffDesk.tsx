@@ -44,6 +44,7 @@ import {
   type Settings,
   type Status,
   type VisitHistory,
+  type VisitSummary,
 } from "@/lib/openres/model";
 import { api, ErrorMessage, Modal, PreviewBanner } from "./shared";
 import { tableReservationAt } from "./FloorMap";
@@ -54,6 +55,7 @@ import styles from "./openres.module.css";
 type DeskData = {
   reservations: Reservation[];
   visits?: VisitHistory[];
+  visitSummaries?: Record<string, VisitSummary>;
   settings: Settings;
   manager: boolean;
   local: boolean;
@@ -71,7 +73,7 @@ function NewReservation({
   date: string;
   waitlist: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (reservation: Reservation) => void;
   initialSource?: "phone" | "walk_in";
   tableId?: string;
 }) {
@@ -81,21 +83,24 @@ function NewReservation({
   const [error, setError] = useState("");
   const clock = venueNow();
   const next = Math.min(1425, Math.ceil(clock.minutes / 15) * 15);
+  const seatNow = source === "walk_in" && !waitlist;
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setError("");
     const form = new FormData(e.currentTarget);
     try {
-      await api("/api/openres/desk", {
+      const current = venueNow();
+      const result = await api<{ reservation: Reservation }>("/api/openres/desk", {
         method: "POST",
         body: JSON.stringify({
           id,
           name: form.get("name"),
           email: form.get("email"),
           phone: form.get("phone"),
-          date: form.get("date"),
-          time: form.get("time"),
+          date: seatNow ? current.date : form.get("date"),
+          time: seatNow ? timeString(Math.floor(current.minutes / 15) * 15) : form.get("time"),
           partySize: Number(form.get("partySize")),
           area: form.get("area"),
           notes: form.get("notes"),
@@ -108,7 +113,7 @@ function NewReservation({
           waitlist,
         }),
       });
-      onSaved();
+      onSaved(result.reservation);
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -118,7 +123,8 @@ function NewReservation({
   }
   return (
     <Modal
-      title={waitlist ? "Add to waitlist" : "Add a reservation"}
+      title={waitlist ? "Add to waitlist" : seatNow ? "Seat a walk-in" : "Add a reservation"}
+      busy={busy}
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -155,15 +161,17 @@ function NewReservation({
           </label>
           <label>
             Date
-            <input name="date" type="date" defaultValue={date} required />
+            <input key={seatNow ? "now" : "planned"} name="date" type="date" defaultValue={seatNow ? clock.date : date} readOnly={seatNow} required />
           </label>
           <label>
             Time ({venue.timeZone})
             <input
               name="time"
               type="time"
-              step={900}
-              defaultValue={date === clock.date ? timeString(next) : "18:00"}
+              key={seatNow ? "now" : "planned"}
+              step={seatNow ? 60 : 900}
+              readOnly={seatNow}
+              defaultValue={seatNow ? timeString(clock.minutes) : date === clock.date ? timeString(next) : "18:00"}
               required
             />
           </label>
@@ -235,7 +243,7 @@ function ReservationEditor({
   onClose: () => void;
 }) {
   return (
-    <Modal title={`Edit ${r.name}`} onClose={onClose}>
+    <Modal title={`Edit ${r.name}`} busy={busy} onClose={onClose}>
       <form
         className={styles.bookingForm}
         onSubmit={async (e) => {
@@ -348,6 +356,31 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
   const [tableFilter, setTableFilter] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<Status | null>(null);
   const generation = useRef(0);
+  const serviceGeneration = useRef(0);
+  function resetServiceSelection() {
+    serviceGeneration.current++;
+    generation.current++;
+    setSelectedId(null);
+    setTableFilter(null);
+    setAssigning(false);
+    setConfirmation(null);
+    setEditOpen(false);
+    setNewOpen(false);
+    setGuest(null);
+    setSearch("");
+    setError("");
+    setNotice("");
+  }
+  function changeDate(nextDate: string) {
+    if (nextDate === date) return;
+    resetServiceSelection();
+    setDate(nextDate);
+  }
+  function changeTab(nextTab: Tab) {
+    if (nextTab === tab) return;
+    resetServiceSelection();
+    setTab(nextTab);
+  }
   const load = useCallback(
     async (quiet = false) => {
       if (hidden.current) return;
@@ -438,6 +471,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
   const reservations = data?.reservations || [];
   const settings = data?.settings || DEFAULT_SETTINGS;
   const selected = reservations.find((r) => r.id === selectedId);
+  const selectedVisits = selected ? data?.visitSummaries?.[selected.id] : undefined;
   const active = reservations.filter((r) =>
     ["confirmed", "arrived", "seated"].includes(r.status),
   );
@@ -475,6 +509,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
   }, [data, search]);
   async function update(changes: Record<string, unknown>) {
     if (!selected || busy) return false;
+    const service = serviceGeneration.current;
     setBusy(true);
     setError("");
     setNotice("");
@@ -490,7 +525,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
           }),
         },
       );
-      if (hidden.current || document.visibilityState === "hidden") return true;
+      if (service !== serviceGeneration.current || hidden.current || document.visibilityState === "hidden") return true;
       setData((d) =>
         d
           ? {
@@ -507,11 +542,19 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
       await load(true);
       return true;
     } catch (e) {
-      setError((e as Error).message);
+      if (service === serviceGeneration.current && !hidden.current) setError((e as Error).message);
       return false;
     } finally {
       setBusy(false);
     }
+  }
+  function selectGuest(id: string) {
+    const party = reservations.find((r) => r.id === id);
+    setSelectedId(id);
+    setTableFilter(party?.tableId || null);
+    setAssigning(false);
+    setConfirmation(null);
+    if (party) setFloorTime(party.status === "seated" ? timeString(venueNow().minutes) : party.time);
   }
   async function selectTable(id: string) {
     setTableFilter(id);
@@ -568,13 +611,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
             <button
               key={t.id}
               aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => {
-                setTab(t.id);
-                setSelectedId(null);
-                setTableFilter(null);
-                setSearch("");
-                setError("");
-              }}
+              onClick={() => changeTab(t.id)}
             >
               {t.label}
             </button>
@@ -635,8 +672,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                     <button
                       aria-label="Previous date"
                       onClick={() => {
-                        setDate(addDays(date, -1));
-                        setSelectedId(null);
+                        changeDate(addDays(date, -1));
                       }}
                     >
                       <ChevronLeft size={16} />
@@ -649,8 +685,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                         value={date}
                         onChange={(e) => {
                           if (e.target.value) {
-                            setDate(e.target.value);
-                            setSelectedId(null);
+                            changeDate(e.target.value);
                           }
                         }}
                       />
@@ -658,13 +693,12 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                     <button
                       aria-label="Next date"
                       onClick={() => {
-                        setDate(addDays(date, 1));
-                        setSelectedId(null);
+                        changeDate(addDays(date, 1));
                       }}
                     >
                       <ChevronRight size={16} />
                     </button>
-                    <button onClick={() => setDate(venueNow().date)}>
+                    <button onClick={() => changeDate(venueNow().date)}>
                       Today
                     </button>
                   </div>
@@ -877,7 +911,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                                 key={r.id}
                                 className={styles.reservationRow}
                                 aria-pressed={selectedId === r.id}
-                                onClick={() => setSelectedId(r.id)}
+                                onClick={() => selectGuest(r.id)}
                               >
                                 <span>
                                   <strong>{timeLabel(r.time)}</strong>
@@ -889,6 +923,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                                 <span>
                                   <strong>
                                     {r.name}
+                                    {!!data?.visitSummaries?.[r.id]?.completedVisits && <span className={styles.returning}>Returning · {data.visitSummaries[r.id].completedVisits} prior visits</span>}
                                     {r.occasion && <em>{r.occasion}</em>}
                                   </strong>
                                   <small>
@@ -918,6 +953,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                       ) : view === "floor" ? (
                         <ShiftFloor
                           reservations={reservations}
+                          visitSummaries={data?.visitSummaries}
                           parties={filtered}
                           settings={settings}
                           time={floorTime}
@@ -926,14 +962,9 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                           assigning={assigning}
                           onTime={setFloorTime}
                           onTable={selectTable}
-                          onGuest={(id) => {
-                            setSelectedId(id);
-                            setTableFilter(
-                              reservations.find((r) => r.id === id)?.tableId ||
-                                null,
-                            );
-                            setAssigning(false);
-                          }}
+                          onGuest={selectGuest}
+                          busy={busy}
+                          error={assigning ? error : ""}
                           onWalkIn={startWalkIn}
                           onCancelAssignment={() => setAssigning(false)}
                         />
@@ -970,7 +1001,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                                           width: `${(Math.min(r.duration, 1440 - minutes(r.time)) / 900) * 100}%`,
                                         }}
                                         aria-label={`${r.name}, ${timeLabel(r.time)}, ${r.partySize} guests, ${STATUS_LABEL[r.status]}`}
-                                        onClick={() => setSelectedId(r.id)}
+                                        onClick={() => selectGuest(r.id)}
                                       >
                                         {r.name}
                                         <small>{r.partySize} guests</small>
@@ -1013,6 +1044,12 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                           <br />
                           {dateLabel(selected.date)}
                         </p>
+                        <section className={styles.visitSummary} aria-label="Venue visit history">
+                          <span className={styles.eyebrow}>AT THIS VENUE</span>
+                          <strong>{!selectedVisits?.matchedBy ? "Visit history unavailable" : selectedVisits.completedVisits ? `Returning guest · ${selectedVisits.completedVisits} prior completed ${selectedVisits.completedVisits === 1 ? "visit" : "visits"}` : "No prior completed visits"}</strong>
+                          {selectedVisits?.lastVisit && <p>Last visit · {dateLabel(selectedVisits.lastVisit)}</p>}
+                          <small>{selectedVisits?.matchedBy ? `Matched by booking ${selectedVisits.matchedBy}. Shared contact details can represent different guests.` : "No matching contact evidence. Guests are never linked by name alone."}</small>
+                        </section>
                         <div className={styles.detailContacts}>
                           {selected.email && (
                             <a href={`mailto:${selected.email}`}>
@@ -1079,6 +1116,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                               className={styles.secondaryButton}
                               onClick={() => {
                                 setView("floor");
+                                setFloorTime(["seated", "waitlisted"].includes(selected.status) ? timeString(venueNow().minutes) : selected.time);
                                 setAssigning(true);
                               }}
                             >
@@ -1252,9 +1290,10 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
           tableId={newTable}
           waitlist={tab === "waitlist"}
           onClose={() => setNewOpen(false)}
-          onSaved={() => {
-            setNotice("Guest added to the book.");
-            void load(true);
+          onSaved={(saved) => {
+            changeDate(saved.date);
+            setNotice(saved.status === "seated" ? "Walk-in seated." : "Guest added to the book.");
+            if (saved.date === date) void load(true);
           }}
         />
       )}
@@ -1269,6 +1308,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
       )}
       {confirmation && selected && (
         <Modal
+          busy={busy}
           title={
             confirmation === "cancelled"
               ? "Cancel this reservation?"
@@ -1291,6 +1331,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
             </button>
             <button
               className={styles.secondaryButton}
+              disabled={busy}
               onClick={() => setConfirmation(null)}
             >
               Go back

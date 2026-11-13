@@ -10,6 +10,7 @@ import { createReservation, updateSettings } from './service';
 import { DEFAULT_SETTINGS, TABLES } from './model';
 import { currentStaff, signIn, signOut } from './auth';
 import { hashPassword } from './password';
+import { readVisitSummaries } from './store';
 const url=process.env.OPENRES_TEST_DATABASE_URL;
 describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
   let client:Client;
@@ -50,4 +51,19 @@ describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
     expect(JSON.stringify((await client.query('SELECT * FROM openres_sessions')).rows)).not.toContain(token);
     await signOut();jar.token=token;expect(await currentStaff()).toBeNull();
   });
+  it('returns minimized repeat-visitor aggregates with PostgreSQL contact matching', async () => {
+    await updateSettings({ ...DEFAULT_SETTINGS, enabled: true }, 'manager');
+    const make = (email: string, phone: string) => createReservation({ id: randomUUID(), date: '2026-11-14', time: '18:00', partySize: 2, name: 'Synthetic Repeat Guest', email, phone, waitlist: true }, 'host', undefined, now);
+    const emailGuest = (await make('repeat@example.com', '')).reservation;
+    const phoneGuest = (await make('', '+1 (212) 555-0100')).reservation;
+    for (const current of [emailGuest, phoneGuest]) {
+      const past = { ...current, id: randomUUID(), date: '2026-10-01', status: 'completed', email: current.email ? ' REPEAT@EXAMPLE.COM ' : '', phone: current.phone ? '12125550100' : '' };
+      await client.query('INSERT INTO openres_reservations VALUES ($1,$2,$3,$4)', [past.id, past.date, past.email, JSON.stringify(past)]);
+    }
+    const result = await readVisitSummaries([emailGuest, phoneGuest]);
+    expect(result[emailGuest.id]).toEqual({ completedVisits: 1, lastVisit: '2026-10-01', matchedBy: 'email' });
+    expect(result[phoneGuest.id]).toEqual({ completedVisits: 1, lastVisit: '2026-10-01', matchedBy: 'phone' });
+    expect(JSON.stringify(result)).not.toContain('@example.com');
+  });
+
 });

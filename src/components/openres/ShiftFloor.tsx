@@ -9,17 +9,21 @@ import {
   timeLabel,
   type Reservation,
   type Settings,
+  type VisitSummary,
 } from "@/lib/openres/model";
 import { FloorMap, tableReservationAt } from "./FloorMap";
 import styles from "./openres.module.css";
 export function ShiftFloor({
   reservations,
+  visitSummaries,
   parties,
   settings,
   time,
   selected,
   tableId,
   assigning,
+  busy = false,
+  error = "",
   onTime,
   onTable,
   onGuest,
@@ -27,12 +31,15 @@ export function ShiftFloor({
   onCancelAssignment,
 }: {
   reservations: Reservation[];
+  visitSummaries?: Record<string, VisitSummary>;
   parties: Reservation[];
   settings: Settings;
   time: string;
   selected?: Reservation;
   tableId?: string;
   assigning: boolean;
+  busy?: boolean;
+  error?: string;
   onTime: (time: string) => void;
   onTable: (id: string) => void;
   onGuest: (id: string) => void;
@@ -67,6 +74,7 @@ export function ShiftFloor({
                 </span>
               </span>
               <strong>{r.name}</strong>
+              {!!visitSummaries?.[r.id]?.completedVisits && <span className={styles.returning}>Returning · {visitSummaries[r.id].completedVisits} prior {visitSummaries[r.id].completedVisits === 1 ? "visit" : "visits"}</span>}
               <span className={styles.railMeta}>
                 <span className={styles.status} data-status={r.status}>
                   {STATUS_LABEL[r.status]}
@@ -101,15 +109,17 @@ export function ShiftFloor({
               Tap a table for <strong>{selected.name}</strong> ·{" "}
               {selected.partySize} guests
             </span>
-            <button onClick={onCancelAssignment}>Cancel</button>
+            <button disabled={busy} onClick={onCancelAssignment}>Cancel</button>
           </div>
         )}
+        {assigning && error && <p className={styles.error} role="alert">{error}</p>}
         <FloorMap
           reservations={reservations}
           settings={settings}
           time={time}
           selected={tableId || selected?.tableId || undefined}
           assigning={assigning}
+          busy={busy}
           onSelect={onTable}
         />
         <div className={styles.legend}>

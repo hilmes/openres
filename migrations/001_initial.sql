@@ -31,3 +31,10 @@ CREATE TABLE IF NOT EXISTS openres_access_audit (
 
 CREATE INDEX IF NOT EXISTS openres_reservations_seated_idx
   ON openres_reservations (service_date) WHERE payload->>'status' = 'seated';
+
+CREATE INDEX IF NOT EXISTS openres_completed_email_idx
+  ON openres_reservations (lower(trim(email)), service_date)
+  WHERE payload->>'status' = 'completed';
+CREATE INDEX IF NOT EXISTS openres_completed_phone_idx
+  ON openres_reservations ((regexp_replace(COALESCE(payload->>'phone', ''), '[^0-9]', '', 'g')), service_date)
+  WHERE payload->>'status' = 'completed' AND trim(email) = '';

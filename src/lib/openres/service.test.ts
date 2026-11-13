@@ -32,7 +32,7 @@ import {
   verifyManagementToken,
   visitHistory,
 } from "./service";
-import { localMode, readReservation, readSettings } from "./store";
+import { localMode, readReservation, readSettings, readVisitSummaries } from "./store";
 import { bookingFixtures } from "./fixtures";
 
 const folder = mkdtempSync(join(tmpdir(), "openres-test-"));
@@ -697,5 +697,56 @@ describe("booking retry security", () => {
     }
     await expect(createReservation(input(), undefined, 'rejected-attempts', now)).rejects.toMatchObject({ status: 429 });
     expect(db.prepare('SELECT COUNT(*) AS count FROM openres_reservations').get()).toEqual({ count: 0 });
+  });
+});
+
+describe("venue-only repeat visitor summaries", () => {
+  it("counts only earlier completed visits and excludes the current booking, future records and other contacts", async () => {
+    const current = (await createReservation(input({ email: 'returning@example.com' }), undefined, undefined, now)).reservation;
+    const add = (patch: Partial<typeof current>) => {
+      const record = { ...current, id: randomUUID(), date: '2026-10-01', status: 'completed', ...patch };
+      db.prepare('INSERT INTO openres_reservations VALUES (?, ?, ?, ?)').run(record.id, record.date, record.email, JSON.stringify(record));
+      return record;
+    };
+    add({ email: ' RETURNING@EXAMPLE.COM ' });
+    add({ date, time: '17:00' });
+    for (const status of ['cancelled', 'no_show', 'waitlisted', 'seated'] as const) add({ status });
+    add({ date: '2026-11-14' });
+    add({ date, time: '19:00' });
+    add({ email: 'another@example.com', name: current.name });
+    const summaries = await readVisitSummaries([current]);
+    expect(summaries[current.id]).toEqual({ completedVisits: 2, lastVisit: date, matchedBy: 'email' });
+    expect(JSON.stringify(summaries)).not.toContain(current.email);
+    expect(JSON.stringify(summaries)).not.toContain(current.name);
+  });
+  it("matches formatted phone-only visits conservatively and never merges by name or missing contact", async () => {
+    const current = (await createReservation(input({ email: '', phone: '+1 (212) 555-0100' }), 'host', undefined, now)).reservation;
+    const add = (patch = {}) => {
+      const record = { ...current, id: randomUUID(), date: '2026-10-01', status: 'completed', ...patch };
+      db.prepare('INSERT INTO openres_reservations VALUES (?, ?, ?, ?)').run(record.id, record.date, record.email, JSON.stringify(record));
+    };
+    add({ phone: '12125550100' });
+    add({ email: 'unrelated@example.com', phone: '12125550100' });
+    add({ phone: '12125550101' });
+    add({ phone: '' });
+    const anonymous = { ...current, id: randomUUID(), phone: '' };
+    const invalid = { ...current, id: randomUUID(), phone: '-------' };
+    const summaries = await readVisitSummaries([current, anonymous, invalid]);
+    expect(summaries[current.id]).toEqual({ completedVisits: 1, lastVisit: '2026-10-01', matchedBy: 'phone' });
+    expect(summaries[anonymous.id]).toEqual({ completedVisits: 0, lastVisit: null, matchedBy: null });
+    expect(summaries[invalid.id].matchedBy).toBeNull();
+    const keys = visitHistory([anonymous, { ...anonymous, id: randomUUID() }]).map(r => r.guestKey);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+  it("counts retained visits beyond the guest book display limit without adding profile records", async () => {
+    const current = (await createReservation(input({ email: 'frequent@example.com' }), undefined, undefined, now)).reservation;
+    const insert = db.prepare('INSERT INTO openres_reservations VALUES (?, ?, ?, ?)');
+    db.transaction(() => {
+      for (let i = 0; i < 5001; i++) {
+        const r = { ...current, id: randomUUID(), date: '2025-01-01', status: 'completed' };
+        insert.run(r.id, r.date, r.email, JSON.stringify(r));
+      }
+    })();
+    expect((await readVisitSummaries([current]))[current.id].completedVisits).toBe(5001);
   });
 });

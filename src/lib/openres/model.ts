@@ -82,6 +82,11 @@ export type Reservation = {
   };
   match: MatchPreference;
 };
+export type VisitSummary = {
+  completedVisits: number;
+  lastVisit: string | null;
+  matchedBy: "email" | "phone" | null;
+};
 export type VisitHistory = Pick<
   Reservation,
   "id" | "name" | "date" | "time" | "partySize" | "status"

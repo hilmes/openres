@@ -3,6 +3,7 @@ import { body, handle, json, staffAccess } from "@/lib/openres/http";
 import { dateSchema, venueNow } from "@/lib/openres/model";
 import {
   readReservations,
+  readVisitSummaries,
   readSettings,
   localMode,
   recordAccessAudit,
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
       reservations: params.get("view") === "guests" ? [] : reservations,
       ...(params.get("view") === "guests"
         ? { visits: visitHistory(reservations) }
-        : {}),
+        : { visitSummaries: await readVisitSummaries(reservations) }),
       settings,
       manager: access.manager,
       local: localMode(),

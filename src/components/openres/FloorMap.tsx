@@ -6,8 +6,8 @@ export function tableReservationAt(reservations: Reservation[], tableId: string,
   return reservations.find(r => r.tableId === tableId && r.status === 'seated') || reservations.find(r =>
     r.tableId === tableId && ['confirmed','arrived'].includes(r.status) && minutes(r.time) <= minutes(time) && minutes(r.time) + r.duration > minutes(time));
 }
-export function FloorMap({ reservations, settings, time, selected, assigning, onSelect }: {
-  reservations: Reservation[]; settings: Settings; time: string; selected?: string; assigning?: boolean; onSelect: (id: string) => void;
+export function FloorMap({ reservations, settings, time, selected, assigning, busy = false, onSelect }: {
+  reservations: Reservation[]; settings: Settings; time: string; selected?: string; assigning?: boolean; busy?: boolean; onSelect: (id: string) => void;
 }) {
   const clock = venueNow();
   return <div className={styles.planScroll}>
@@ -20,7 +20,7 @@ export function FloorMap({ reservations, settings, time, selected, assigning, on
         const r = tableReservationAt(reservations, t.id, time);
         const state = settings.disabledTables.includes(t.id) ? 'disabled' : r?.status === 'seated' ? 'seated' : r?.status === 'arrived' ? 'arrived' : r ? 'reserved' : 'free';
         const elapsed = r ? Math.max(0, (Date.parse(clock.date) - Date.parse(r.date))/60000 + clock.minutes - minutes(r.time)) : 0;
-        return <button key={t.id} className={styles.planTable} style={{ left: `${t.x*100}%`, top: `${t.y*100}%` }} data-shape={t.shape} data-state={state} data-assigning={assigning || undefined} aria-pressed={selected === t.id} aria-label={`Table ${t.id}, ${t.seats} seats, ${AREAS[t.area]}, ${state}${r ? `, ${r.name}` : ''}`} onClick={() => onSelect(t.id)}>
+        return <button disabled={busy && assigning} key={t.id} className={styles.planTable} style={{ left: `${t.x*100}%`, top: `${t.y*100}%` }} data-shape={t.shape} data-state={state} data-assigning={assigning || undefined} aria-pressed={selected === t.id} aria-label={`Table ${t.id}, ${t.seats} seats, ${AREAS[t.area]}, ${state}${r ? `, ${r.name}` : ''}`} onClick={() => onSelect(t.id)}>
           <strong>{t.id}</strong><small>{r ? r.status === 'seated' ? `${elapsed}m` : `${r.partySize}/${t.seats}` : `${t.seats} seats`}</small>
         </button>;
       })}

@@ -16,6 +16,8 @@ OpenRes is a Next.js/React application for one venue per installation. All UI br
 
 `openres_reservations` stores the operational record plus application provenance; `openres_settings` stores current service/inventory policy; `openres_limits` stores expiring booking/login counters; `openres_sessions` stores hashed staff sessions; `openres_access_audit` records manager reads/exports, settings changes and sign-ins.
 
+The service desk derives contact-based visit summaries directly from retained completed reservations using indexed aggregate queries. It returns only count, last visit date and match method; historical contacts and notes are not returned. Email takes precedence over phone, and a missing contact never falls back to name matching. The manager-only guest book remains a separate minimized view.
+
 Availability reads do not acquire the inventory write lock; they are advisory, and every mutation rechecks allocation atomically. A bounded cache stores timezone conversion results only, never guest data or booking availability.
 
 A seated overstay continues blocking its table until staff complete the visit. Walk-ins use the actual current minute. Moving a seated party checks the remaining visit against other bookings. Waitlist entries hold no inventory. There is no integration that silently imports external reservations or camera observations.

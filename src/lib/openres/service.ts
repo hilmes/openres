@@ -20,6 +20,7 @@ import {
   type VisitHistory,
 } from "./model";
 import { consumeAuthLimit, localMode, withInventory } from "./store";
+import { visitorContact } from "./visitors";
 
 function secret() {
   const key = localMode()
@@ -47,11 +48,8 @@ export function requestRateKey(ip: string) {
 /** A venue-only projection; contact information and free-text notes never reach the history UI. */
 export function visitHistory(records: Reservation[]): VisitHistory[] {
   return records.map((r) => {
-    const identity = r.email
-      ? `email:${r.email.trim().toLowerCase()}`
-      : r.phone
-        ? `phone:${r.phone.replace(/\D/g, "")}`
-        : `reservation:${r.id}`;
+    const contact = visitorContact(r);
+    const identity = contact ? `${contact.kind}:${contact.value}` : `reservation:${r.id}`;
     return {
       id: r.id,
       name: r.name,

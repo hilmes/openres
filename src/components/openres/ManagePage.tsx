@@ -53,7 +53,7 @@ export function ManagePage() {
     return () => controller.abort();
   }, []);
   async function update(changes: Record<string, unknown>) {
-    if (!reservation) return;
+    if (!reservation || busy) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -182,6 +182,7 @@ export function ManagePage() {
         )}
         {dialog && reservation && (
           <Modal
+            busy={busy}
             title={
               dialog === "edit"
                 ? "Change your reservation"
@@ -208,6 +209,7 @@ export function ManagePage() {
                 </button>
                 <button
                   className={styles.secondaryButton}
+                  disabled={busy}
                   onClick={() => setDialog(null)}
                 >
                   Keep my reservation

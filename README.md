@@ -52,6 +52,7 @@ For self-hosting, terminate HTTPS at a trusted reverse proxy. Keep the Node port
 
 - No analytics, session replay, tracking fonts, enrichment or marketing integrations are included.
 - Phone is optional. Guest history is a manager-only server projection of name, visit date/time, party size and status. Contact details and notes are excluded from that response; there is no separate guest-profile database.
+- The service desk marks returning guests with prior completed-visit counts and the most recent visit at this venue. Counts use all retained completed bookings before that reservation, not just the guest book’s 5,000-row display. Matching uses normalized email first, or digits-only phone when email is absent on both bookings; it never merges by name. Shared contacts can represent different people, and changed/missing contacts can undercount visits. No extra contact data or guest profile is saved.
 - Staff work with the service book. Only managers can export or browse cross-visit history, and those accesses are audited. Exports exclude email, phone and notes.
 - Private guest links put their capability token in the URL fragment, not a query string. API responses are `no-store`. The shared desk clears when hidden; Lock desk revokes the server-side session.
 - Booking changes carry actor, version, field names and seating state. Floor revisions are hashed. Signed fixture snapshots distinguish the operator's catalog from client-supplied details; this is source evidence, not a screening guarantee or a verified guest identity.

@@ -2277,3 +2277,36 @@
   .preview { line-height: 1.7; }
   .preview a { margin-left: 8px; }
 }
+
+/* Service controls must remain usable with touch and an onscreen keyboard. */
+.primaryButton, .secondaryButton, .dangerButton, .textButton,
+.dateControl button, .segmented button, .clearFilter, .assignPrompt button,
+.filterActions select, .search, .shiftPlan .panelHeading input {
+  min-height: 44px;
+}
+.dateControl button, .assignPrompt button { min-width: 44px; }
+.dateControl input, .search input, .filterActions select,
+.shiftPlan .panelHeading input { font-size: 16px; min-height: 44px; }
+.dateControl input { width: 156px; }
+.search { min-width: 0; }
+.search input { min-width: 0; width: min(200px, 100%); }
+.guest button, .desk button, .modal button { touch-action: manipulation; }
+.modal { overscroll-behavior: contain; scroll-padding-block: 16px; }
+.modal input[readonly] { color: var(--muted); background: var(--paper); }
+@media (max-width: 850px) {
+  .shiftFloor { grid-template-columns: 1fr; }
+  .shiftPlan { order: -1; }
+}
+@media (max-width: 550px) {
+  .dateControl { width: 100%; }
+  .dateControl label { flex: 1; min-width: 0; }
+  .dateControl input { width: 100%; }
+  .search { width: calc(100% - 56px); margin-left: 0; }
+  .search input { width: 100%; }
+}
+
+.returning { display: block; color: var(--accent); font-size: 12px; font-weight: 500; }
+.visitSummary { display: grid; gap: 8px; padding: 16px 0; border-block: 1px solid var(--line); margin: 18px 0; }
+.visitSummary strong { font-size: 14px; font-weight: 600; }
+.visitSummary p { font-size: 13px; }
+.visitSummary small { color: var(--muted); font-size: 12px; line-height: 1.5; }

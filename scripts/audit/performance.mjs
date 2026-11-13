@@ -25,7 +25,7 @@ export async function performanceSuite(c) {
   const now = new Date().toISOString();
   const seed = Array.from({ length: 5000 }, (_, i) => {
     const serviceDate = i < 400 ? day : '2025-01-01';
-    return { id: randomUUID(), date: serviceDate, time: '18:00', partySize: 2, area: 'any', tableId: null, duration: 90, name: `Synthetic Guest ${i}`, email: `guest${i}@example.com`, phone: '', notes: 'Synthetic private note', staffNotes: 'Synthetic private staff note', occasion: '', status: i < 400 ? 'waitlisted' : 'completed', source: 'online', createdAt: now, updatedAt: now, version: 1, history: [], match: { kind: 'none' } };
+    return { id: randomUUID(), date: serviceDate, time: '18:00', partySize: 2, area: 'any', tableId: null, duration: 90, name: `Synthetic Guest ${i}`, email: `guest${i < 400 ? i : i % 400}@example.com`, phone: '', notes: 'Synthetic private note', staffNotes: 'Synthetic private staff note', occasion: '', status: i < 400 ? 'waitlisted' : 'completed', source: 'online', createdAt: now, updatedAt: now, version: 1, history: [], match: { kind: 'none' } };
   });
   await client.query('INSERT INTO openres_reservations(id,service_date,email,payload) SELECT r->>\'id\',r->>\'date\',r->>\'email\',r FROM jsonb_array_elements($1::jsonb) AS r', [JSON.stringify(seed)]);
   await benchmark('availability_400_service_5000_total', avail);
