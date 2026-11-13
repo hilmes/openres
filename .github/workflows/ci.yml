@@ -28,4 +28,15 @@ jobs:
         env:
           OPENRES_TEST_DATABASE_URL: postgres://postgres:openres-test-only@127.0.0.1:5432/openres_test
       - run: npm run build
+        env:
+          NEXT_BUILD_DIR: .next-audit
+      - run: node scripts/audit/index.mjs
+        env:
+          OPENRES_TEST_DATABASE_URL: postgres://postgres:openres-test-only@127.0.0.1:5432/openres_test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-performance-results
+          path: .openres/audit/results.json
+          if-no-files-found: ignore
       - run: npm audit --omit=dev --audit-level=high

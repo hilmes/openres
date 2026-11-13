@@ -74,6 +74,20 @@ OPENRES_TEST_DATABASE_URL=postgres://postgres:openres-test-only@127.0.0.1:5432/o
 
 Those tests truncate OpenRes tables and refuse any other host/database name. CI provisions its own PostgreSQL service. Test credentials are synthetic.
 
+## Security and performance acceptance
+
+Run the production HTTP suite against a disposable PostgreSQL database after `npm ci`:
+
+```sh
+OPENRES_TEST_DATABASE_URL=postgres://postgres:openres-test-only@127.0.0.1:5432/openres_test npm run test:audit
+```
+
+It refuses a non-loopback database or any database name other than `openres_test`, truncates its test tables, and starts a temporary production server on loopback port 4030. It covers staff roles, cookies, private-link/retry authorization, CSRF, validation, rate limits, exports, session revocation and concurrent table allocation. The load tests measure warm p50/p95 latency at eight concurrent requests (four for cross-visit history), including a synthetic book of 400 waiting parties and 5,000 total visits. They also measure initial JavaScript/CSS gzip size and font payloads. Local regression budgets are 1 second p95 for ordinary reads, 1.5 seconds for 5,000-visit history, 300 KiB JavaScript gzip and 250 KiB fonts. These are project test budgets, not production SLAs or browser Web Vitals.
+
+Results go to the ignored `.openres/audit/results.json`; CI uploads that file. The runner stops its own app process but leaves the disposable database for the caller to remove. Never use guest records in this suite. Run independently from unit tests because both reset the same test tables.
+
+Custom guest booking integrations must send an independently generated UUID `requestKey` alongside `id`, retain both for retries in memory, and never derive the key from guest details or the record ID. Only its hash is stored. Existing records without a retry hash remain manageable using their original private link and cannot recover a receipt by replaying creation.
+
 ## Current scope
 
 This is an initial implementation, not full feature parity with a commercial reservation platform. Bookings support 1–8 guests and one table per party, with service windows that finish within the same venue date. Payments, deposits, SMS, automatic waitlist offers, combined tables, multi-venue tenancy and passkeys/SSO are not included. No offline guest-data cache is used; booking and table changes require a connection. Physical iPad/browser acceptance testing is required before venue rollout.

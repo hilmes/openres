@@ -18,7 +18,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs",
-    "staff:create": "node scripts/create-staff.mjs"
+    "staff:create": "node scripts/create-staff.mjs",
+    "test:audit": "NEXT_BUILD_DIR=.next-audit npm run build && node scripts/audit/index.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
