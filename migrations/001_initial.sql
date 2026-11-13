@@ -28,3 +28,6 @@ CREATE TABLE IF NOT EXISTS openres_access_audit (
   action text NOT NULL,
   scope text NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS openres_reservations_seated_idx
+  ON openres_reservations (service_date) WHERE payload->>'status' = 'seated';

@@ -25,6 +25,8 @@ export const STATUS_LABEL: Record<Status, string> = {
 };
 export type Reservation = {
   id: string;
+  /** Internal retry proof; never include in guest projections. */
+  requestKeyHash?: string;
   date: string;
   time: string;
   partySize: number;

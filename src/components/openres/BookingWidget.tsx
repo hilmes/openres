@@ -89,6 +89,7 @@ export function BookingWidget({
   const [notice, setNotice] = useState("");
   const [showAll, setShowAll] = useState(false);
   const requestId = useRef("");
+  const requestKey = useRef("");
   const [refresh, setRefresh] = useState(0);
   const chooseMatch = useCallback((choice: MatchPreference) => {
     setMatch(choice);
@@ -120,6 +121,7 @@ export function BookingWidget({
   }, [date, partySize, area, refresh, match]);
   const select = (time: string, waitlist = false) => {
     requestId.current = crypto.randomUUID();
+    requestKey.current = crypto.randomUUID();
     setBookingError("");
     setSelection({ time, waitlist });
   };
@@ -134,6 +136,7 @@ export function BookingWidget({
         method: "POST",
         body: JSON.stringify({
           id: requestId.current,
+          requestKey: requestKey.current,
           date,
           time: selection.time,
           partySize,

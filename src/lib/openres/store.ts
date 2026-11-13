@@ -169,6 +169,20 @@ export async function readReservations(date?: string): Promise<Reservation[]> {
     connection.release();
   }
 }
+/** Availability is an advisory read; booking mutations always recheck under the lock. */
+export async function readAvailabilityInventory(date: string) {
+  const connection = await connect();
+  try {
+    const { rows: configRows } = await connection.query('SELECT payload FROM openres_settings WHERE id = 1');
+    const status = localMode() ? "json_extract(payload, '$.status')" : "payload->>'status'";
+    const { rows } = await connection.query(
+      `SELECT payload FROM openres_reservations WHERE (service_date = $1 AND ${status} IN ('confirmed', 'arrived', 'seated')) OR ${status} = 'seated'`,
+      [date],
+    );
+    return { settings: configRows[0] ? decode<Settings>(configRows[0]) : structuredClone(DEFAULT_SETTINGS), reservations: rows.map(row => decode<Reservation>(row)) };
+  } finally { connection.release(); }
+}
+
 export async function readReservation(id: string): Promise<Reservation | null> {
   const connection = await connect();
   try {
@@ -192,7 +206,6 @@ export async function withInventory<T>(
   date: string,
   id: string,
   mutate: (inventory: Inventory) => T,
-  rateKey?: string,
 ): Promise<T> {
   let unlock: (() => void) | undefined;
   if (localMode()) {
@@ -229,29 +242,6 @@ export async function withInventory<T>(
     const previous = new Map(
       reservations.map((r) => [r.id, JSON.stringify(r)]),
     );
-    if (rateKey && !previous.has(id)) {
-      const now = Date.now();
-      await connection.query(
-        "DELETE FROM openres_limits WHERE expires < $1",
-        [now],
-      );
-      const limits = (
-        await connection.query(
-          "SELECT hits FROM openres_limits WHERE key = $1",
-          [rateKey],
-        )
-      ).rows;
-      const hits = Number(limits[0]?.hits || 0);
-      if (hits >= 8)
-        throw new BookingError(
-          "Too many requests. Please try again in an hour or contact the venue.",
-          429,
-        );
-      await connection.query(
-        "INSERT INTO openres_limits (key, hits, expires) VALUES ($1, 1, $2) ON CONFLICT (key) DO UPDATE SET hits = openres_limits.hits + 1",
-        [rateKey, now + 3600000],
-      );
-    }
     const inventory: Inventory = { settings, reservations, audit: [] };
     const result = mutate(inventory);
     if (
@@ -309,12 +299,12 @@ export async function recordAccessAudit(
   }
 }
 
-export async function consumeAuthLimit(key: string, max: number, expires: number) {
+export async function consumeAuthLimit(key: string, max: number, expires: number, message = 'Too many sign-in attempts. Try again later.') {
   const connection = await connect();
   try {
     await connection.query('DELETE FROM openres_limits WHERE expires < $1', [Date.now()]);
     const { rows } = await connection.query('INSERT INTO openres_limits (key, hits, expires) VALUES ($1, 1, $2) ON CONFLICT (key) DO UPDATE SET hits = openres_limits.hits + 1 RETURNING hits', [key, expires]);
-    if (Number(rows[0].hits) > max) throw new BookingError('Too many sign-in attempts. Try again later.', 429);
+    if (Number(rows[0].hits) > max) throw new BookingError(message, 429);
   } finally { connection.release(); }
 }
 export async function saveSession(tokenHash: string, identity: string, expires: number) {

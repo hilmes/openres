@@ -43,6 +43,7 @@ let db: Database.Database;
 function input(patch = {}) {
   return {
     id: randomUUID(),
+    requestKey: randomUUID(),
     date,
     time: "18:00",
     partySize: 2,
@@ -666,5 +667,35 @@ it("records manager settings provenance in the same transaction", async () => {
     version: saved.version,
     fields: ["duration"],
     settings: { duration: 120 },
+  });
+});
+
+describe("booking retry security", () => {
+  it("requires a private retry key even when the caller knows the ID and contacts", async () => {
+    const request = input();
+    const first = await createReservation(request, undefined, undefined, now);
+    await expect(createReservation({ ...request, requestKey: randomUUID() }, undefined, undefined, now)).rejects.toMatchObject({ status: 409 });
+    const withoutKey = { ...request, requestKey: undefined };
+    await expect(createReservation(withoutKey, undefined, undefined, now)).rejects.toThrow();
+    const retry = await createReservation(request, undefined, undefined, now);
+    expect(retry.token).toBe(first.token);
+    expect(JSON.stringify(first.reservation)).not.toContain(request.requestKey);
+    expect(guestReservation(first.reservation)).not.toHaveProperty('requestKeyHash');
+  });
+  it("requires the existing management link for legacy records without a retry hash", async () => {
+    const request = input();
+    const first = await createReservation(request, undefined, undefined, now);
+    const legacy = { ...first.reservation, requestKeyHash: undefined };
+    db.prepare('UPDATE openres_reservations SET payload = ? WHERE id = ?').run(JSON.stringify(legacy), request.id);
+    await expect(createReservation(request, undefined, undefined, now)).rejects.toMatchObject({ status: 409 });
+    expect(verifyManagementToken(request.id, first.token)).toBe(true);
+  });
+  it("counts rejected booking attempts without persisting failed reservations", async () => {
+    db.prepare('UPDATE openres_settings SET payload = ? WHERE id = 1').run(JSON.stringify({ ...config(), closedDates: [date] }));
+    for (let i = 0; i < 8; i++) {
+      await expect(createReservation(input(), undefined, 'rejected-attempts', now)).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(createReservation(input(), undefined, 'rejected-attempts', now)).rejects.toMatchObject({ status: 429 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM openres_reservations').get()).toEqual({ count: 0 });
   });
 });

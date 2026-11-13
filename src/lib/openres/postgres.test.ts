@@ -36,7 +36,7 @@ describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
   });
   it('serializes two concurrent requests for the last table',async()=>{
     await updateSettings({...DEFAULT_SETTINGS,enabled:true,disabledTables:TABLES.filter(t=>t.id!=='11').map(t=>t.id)},'manager');
-    const input=()=>({id:randomUUID(),date:'2026-11-14',time:'18:00',partySize:2,name:'Synthetic Guest',email:`${randomUUID()}@example.com`});
+    const input=()=>({id:randomUUID(),requestKey:randomUUID(),date:'2026-11-14',time:'18:00',partySize:2,name:'Synthetic Guest',email:`${randomUUID()}@example.com`});
     const results=await Promise.allSettled([createReservation(input(),undefined,undefined,now),createReservation(input(),undefined,undefined,now)]);
     expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);
     expect((await client.query('SELECT COUNT(*)::int AS count FROM openres_reservations')).rows[0].count).toBe(1);

@@ -83,6 +83,8 @@ describe("fixture-first reservation flow", () => {
     expect(submitted?.match).toEqual({ kind: "fixture", fixture });
     expect(submitted?.date).toBe(date);
     expect(submitted?.phone).toBe("");
+    expect(submitted?.requestKey).toMatch(/^[a-f0-9-]{36}$/);
+    expect(submitted?.requestKey).not.toEqual(submitted?.id);
     expect(submitted).not.toHaveProperty("occasion");
   });
   it("requires an Other match request and carries it through confirmation", async () => {

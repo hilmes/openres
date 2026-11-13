@@ -19,7 +19,7 @@ import {
   type MatchPreference,
   type VisitHistory,
 } from "./model";
-import { localMode, withInventory } from "./store";
+import { consumeAuthLimit, localMode, withInventory } from "./store";
 
 function secret() {
   const key = localMode()
@@ -138,10 +138,12 @@ function auditState(r: Reservation) {
   };
 }
 export const createSchema = bookingSchema.extend({
+  requestKey: z.string().uuid(),
   source: z.enum(["online", "phone", "walk_in"]).default("online"),
   waitlist: z.boolean().default(false),
 });
 const staffCreateSchema = createSchema.extend({
+  requestKey: createSchema.shape.requestKey.optional(),
   tableId: z.string().optional(),
   email: z
     .union([
@@ -163,6 +165,14 @@ export async function createReservation(
   now = new Date(),
 ) {
   const input = (actor ? staffCreateSchema : createSchema).parse(raw);
+  // Consume outside the inventory transaction: rejected bookings still cost an attempt.
+  if (!actor && rateKey) await consumeAuthLimit(
+    `booking:${rateKey}`, 8, Date.now() + 3600000,
+    'Too many requests. Please try again in an hour or contact the venue.',
+  );
+  const requestKeyHash = input.requestKey
+    ? createHash('sha256').update(input.requestKey).digest('hex')
+    : undefined;
   const token = managementToken(input.id);
   const result = await withInventory(
     input.date,
@@ -170,8 +180,10 @@ export async function createReservation(
     (inventory) => {
       const existing = inventory.reservations.find((r) => r.id === input.id);
       if (existing) {
-        // A guessed/colliding request ID never exposes another guest's booking.
+        // Public IDs and contact details are not authentication. Legacy rows without
+        // a retry hash must use their original management link instead.
         if (
+          (!actor && (!existing.requestKeyHash || existing.requestKeyHash !== requestKeyHash)) ||
           existing.email !== input.email ||
           existing.name !== input.name ||
           existing.phone !== input.phone
@@ -239,6 +251,7 @@ export async function createReservation(
       const at = now.toISOString();
       const reservation: Reservation = {
         id: input.id,
+        ...(requestKeyHash ? { requestKeyHash } : {}),
         date: input.date,
         time: input.time,
         partySize: input.partySize,
@@ -289,7 +302,6 @@ export async function createReservation(
       reservations.push(reservation);
       return { reservation, created: true };
     },
-    rateKey,
   );
   return { ...result, token };
 }

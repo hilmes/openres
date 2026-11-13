@@ -9,6 +9,7 @@ Use the repository's private security advisory reporting feature when available.
 ## Trust boundaries
 
 - Guest management links are bearer capabilities. Anyone possessing one can read/manage that reservation. They have no independent email verification or automatic expiry yet; secret rotation invalidates all existing links.
+- Creation retries require a separate random request key; public record IDs and contact details do not authorize receipt recovery. Only the retry-key hash is stored. Booking rate counters persist even when the inventory transaction rejects the request.
 - Staff use individually configured accounts with scrypt password hashes and eight-hour opaque sessions. Only session-token hashes are stored. Password rotation or account removal invalidates access on the next request; Lock desk deletes the session in the database. Current roles are re-evaluated on every request.
 - Demo authorization is available only in explicitly enabled development mode and on loopback API hosts. Production ignores demo mode. Never expose a development server or its demo routes to the internet.
 - Booking and login limits use keyed hashes, not raw IP storage. Reverse-proxy headers are trusted only when the operator explicitly enables that configuration.

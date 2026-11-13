@@ -6,7 +6,7 @@ OpenRes is a Next.js/React application for one venue per installation. All UI br
 
 - `src/components/openres`: embeddable guest booking, guest management and staff operations. The default staff view pairs the floor with the service list. Other/Skip follow the fixture list when that feature is enabled.
 - `src/lib/openres/model.ts`: input validation, availability, table fit, transition rules and guest response projection.
-- `src/lib/openres/service.ts`: idempotent creation, optimistic version checks, atomic table allocation and source/change provenance.
+- `src/lib/openres/service.ts`: private-key-authorized idempotent creation, optimistic version checks, atomic table allocation and source/change provenance.
 - `src/lib/openres/store.ts`: SQLite demo storage and standard PostgreSQL persistence. Production mutations use `BEGIN`, a transaction-scoped advisory lock and `COMMIT`/`ROLLBACK` on the same connection.
 - `src/lib/openres/auth.ts`: individual staff/manager accounts, hashed session tokens, expiry, revocation and distributed login limits. `password.ts` uses Node's asynchronous scrypt with random salts and constant-time comparison.
 - `src/lib/openres/time.ts`: IANA timezone conversion that rejects missing/repeated wall-clock times and supports non-hour offsets.
@@ -15,6 +15,8 @@ OpenRes is a Next.js/React application for one venue per installation. All UI br
 ## Storage
 
 `openres_reservations` stores the operational record plus application provenance; `openres_settings` stores current service/inventory policy; `openres_limits` stores expiring booking/login counters; `openres_sessions` stores hashed staff sessions; `openres_access_audit` records manager reads/exports, settings changes and sign-ins.
+
+Availability reads do not acquire the inventory write lock; they are advisory, and every mutation rechecks allocation atomically. A bounded cache stores timezone conversion results only, never guest data or booking availability.
 
 A seated overstay continues blocking its table until staff complete the visit. Walk-ins use the actual current minute. Moving a seated party checks the remaining visit against other bookings. Waitlist entries hold no inventory. There is no integration that silently imports external reservations or camera observations.
 
