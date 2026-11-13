@@ -18,7 +18,7 @@ export function StaffLogin() {
     } catch (error) { setError((error as Error).message); setBusy(false); }
   }
   return <main className={styles.guest} data-openres-private>
-    <div className={styles.simpleGuest}>
+    <div className={`${styles.simpleGuest} ${styles.login}`}>
       <Brand /><h1>Staff sign-in</h1><p>{venue.name}</p>
       <form className={styles.bookingForm} onSubmit={submit}>
         <label>Username<input name="username" autoComplete="username" required maxLength={64} /></label>

@@ -24,6 +24,10 @@ Edit [`src/config/venue.ts`](src/config/venue.ts): venue name/contact details, I
 
 Ordinary reservations go straight to date, party size and time. Sports-oriented venues can enable `features.fixtures` and populate [`src/config/fixtures.ts`](src/config/fixtures.ts). Then guests choose a fixture, **+ OTHER** or **SKIP**, with Other/Skip below the fixture list. `BookingWidget` also accepts `fixtures`, `initialMatch`, date/party/time prefills and `onBooked` for calendar integration.
 
+## Visual theme
+
+The default skin uses warm near-black paper, bone text, restrained teal accents, Archivo body/display type and Fragment Mono labels. Fonts are served locally with their OFL notices; browsers make no font-provider requests. Theme tokens live in `src/app/globals.css`, while booking and desk layouts live in `src/components/openres/openres.module.css`.
+
 ## Deploy your own installation
 
 Use a separate PostgreSQL database for each venue. The application is portable across Node hosts and uses the standard `pg` client; no hosting vendor account is required.

@@ -28,7 +28,7 @@ Staff authentication is portable and does not depend on the original venue's acc
 
 The initial reservation implementation was extracted from a privately developed venue-specific prototype into fresh Git history. Only the reservation source and synthetic tests were retained. Venue drawings, guest data, secrets, tracking integrations, proprietary fonts and private Git history were excluded. The sample floor geometry was authored for OpenRes. No Resy source code, logos or assets are included.
 
-The application is MIT licensed. Dependency licenses remain their own and are recorded in package metadata/lockfiles. Icons come from Lucide; fonts use the operating system stack. Operators supplying assets or fixture data are responsible for their provenance and distribution rights.
+The application is MIT licensed. Dependency licenses remain their own and are recorded in package metadata/lockfiles. Icons come from Lucide; Archivo and Fragment Mono are self-hosted under their included SIL Open Font License notices. Operators supplying assets or fixture data are responsible for their provenance and distribution rights.
 
 ## Known first-release work
 

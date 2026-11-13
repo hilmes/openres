@@ -1,6 +1,58 @@
-:root { --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --font-display: var(--font-body); }
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/Archivo.ttf") format("truetype");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fragment Mono";
+  src: url("/fonts/FragmentMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+:root {
+  color-scheme: dark;
+  --paper: #141311;
+  --surface: #1c1b18;
+  --surface-raised: #24231f;
+  --ink: #ece8df;
+  --muted: #9a958b;
+  --line: #2b2925;
+  --control-border: #625e55;
+  --accent: #76c4c3;
+  --accent-hover: #97d8d6;
+  --accent-wash: #203332;
+  --positive: #b4c8ad;
+  --positive-wash: #293329;
+  --warning: #e0bc7b;
+  --warning-wash: #3b3020;
+  --error: #f08a6c;
+  --error-wash: #402821;
+  --reserved: #adcadc;
+  --reserved-wash: #26333d;
+  --waitlisted: #cbb5df;
+  --waitlisted-wash: #322b3b;
+  --font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: "Fragment Mono", ui-monospace, Menlo, monospace;
+}
 * { box-sizing: border-box; }
-body { margin: 0; font-family: var(--font-body); background: #f6f5ee; color: #19382e; }
-button, input, select, textarea { font: inherit; }
+html { scrollbar-gutter: stable; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: inherit; }
+::selection { background: var(--accent); color: var(--paper); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

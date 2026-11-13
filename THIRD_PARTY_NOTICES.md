@@ -1,6 +1,6 @@
 # Third-party notices
 
-OpenRes uses open-source dependencies under their own licenses. Their source and license files are installed by npm; package-lock.json records the resolved packages. Preserve those notices when redistributing a bundled application. No third-party fonts or venue artwork are included.
+OpenRes uses open-source dependencies under their own licenses. Their source and license files are installed by npm; package-lock.json records the resolved packages. Preserve those notices when redistributing a bundled application. No venue artwork is included. Archivo and Fragment Mono are self-hosted under the SIL Open Font License; their copyright and license notices are in public/fonts.
 
 ## Lucide icons
 
