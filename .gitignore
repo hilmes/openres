@@ -1,0 +1,20 @@
+node_modules/
+.next/
+.next-*/
+.openres/
+.env*
+!.env.example
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+.DS_Store
+.vercel/
+.beads/
+.beads.gate.lock
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*

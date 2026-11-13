@@ -1,0 +1,6 @@
+:root { --font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --font-display: var(--font-body); }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-body); background: #f6f5ee; color: #19382e; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
