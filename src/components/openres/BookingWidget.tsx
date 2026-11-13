@@ -23,6 +23,7 @@ import {
 } from "@/lib/openres/model";
 import { api, downloadCalendar, ErrorMessage, Modal } from "./shared";
 import { MatchPicker } from "./MatchPicker";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 
 type Availability = {
@@ -61,6 +62,7 @@ export function BookingWidget({
   initialFixtureId,
   onBooked,
 }: BookingWidgetProps) {
+  const paths = usePaths();
   const [match, setMatch] = useState<MatchPreference | null>(
     initialMatch || (venue.features.fixtures || fixtures || initialFixtureId ? null : { kind: "none" }),
   );
@@ -107,7 +109,7 @@ export function BookingWidget({
     setError("");
     setData(null);
     api<Availability>(
-      `/api/openres/availability?date=${date}&partySize=${partySize}&area=${area}`,
+      `${paths.api}/availability?date=${date}&partySize=${partySize}&area=${area}`,
       { signal: abort.signal },
     )
       .then(setData)
@@ -118,7 +120,7 @@ export function BookingWidget({
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [date, partySize, area, refresh, match]);
+  }, [date, partySize, area, refresh, match, paths.api]);
   const select = (time: string, waitlist = false) => {
     requestId.current = crypto.randomUUID();
     requestKey.current = crypto.randomUUID();
@@ -132,7 +134,7 @@ export function BookingWidget({
     setBookingError("");
     const form = new FormData(event.currentTarget);
     try {
-      const result = await api<Receipt>("/api/openres/reservations", {
+      const result = await api<Receipt>(`${paths.api}/reservations`, {
         method: "POST",
         body: JSON.stringify({
           id: requestId.current,
@@ -177,7 +179,7 @@ export function BookingWidget({
     .slice(0, showAll ? undefined : 9)
     .sort((a, b) => a.time.localeCompare(b.time));
   const managementLink = receipt
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/manage#${receipt.reservation.id}.${receipt.token}`
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}${paths.manage}#${receipt.reservation.id}.${receipt.token}`
     : "";
   return (
     <div

@@ -9,6 +9,7 @@ import {
   type MatchPreference,
 } from "@/lib/openres/model";
 import { api } from "./shared";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 
 export function MatchPicker({
@@ -20,6 +21,7 @@ export function MatchPicker({
   initialFixtureId?: string;
   onSelect: (match: MatchPreference) => void;
 }) {
+  const paths = usePaths();
   const [fixtures, setFixtures] = useState<BookingFixture[]>(supplied || []);
   const [loading, setLoading] = useState(!supplied);
   const [error, setError] = useState("");
@@ -34,7 +36,7 @@ export function MatchPicker({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize loading status with an external catalog fetch/retry.
     setLoading(true);
     setError("");
-    api<{ fixtures: BookingFixture[] }>("/api/openres/fixtures", {
+    api<{ fixtures: BookingFixture[] }>(`${paths.api}/fixtures`, {
       signal: abort.signal,
     })
       .then((data) => {
@@ -47,7 +49,7 @@ export function MatchPicker({
         if (!abort.signal.aborted) setLoading(false);
       });
     return () => abort.abort();
-  }, [supplied, retry]);
+  }, [supplied, retry, paths.api]);
   useEffect(() => {
     if (initialFixtureId) {
       const selected = fixtures.find((f) => f.id === initialFixtureId);

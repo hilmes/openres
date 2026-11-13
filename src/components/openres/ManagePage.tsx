@@ -14,9 +14,11 @@ import {
   type GuestReservation,
 } from "@/lib/openres/model";
 import { api, Brand, downloadCalendar, ErrorMessage, Modal } from "./shared";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 
 export function ManagePage() {
+  const paths = usePaths();
   const [key, setKey] = useState({ id: "", token: "" });
   const [reservation, setReservation] = useState<GuestReservation | null>(null);
   const [error, setError] = useState("");
@@ -37,7 +39,7 @@ export function ManagePage() {
     setKey({ id, token });
     const controller = new AbortController();
     api<{ reservation: GuestReservation }>(
-      `/api/openres/reservations/${id}`,
+      `${paths.api}/reservations/${id}`,
       {
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
@@ -51,7 +53,7 @@ export function ManagePage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [paths.api]);
   async function update(changes: Record<string, unknown>) {
     if (!reservation || busy) return;
     setBusy(true);
@@ -61,7 +63,7 @@ export function ManagePage() {
       const data = await api<{
         reservation: GuestReservation;
         emailed: boolean;
-      }>(`/api/openres/reservations/${key.id}`, {
+      }>(`${paths.api}/reservations/${key.id}`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${key.token}` },
         body: JSON.stringify({ ...changes, version: reservation.version }),
@@ -97,7 +99,7 @@ export function ManagePage() {
     <div className={styles.guest} data-openres-private>
       <header className={styles.guestHeader}>
         <Brand />
-        <a href="/book">
+        <a href={paths.book}>
           <ArrowLeft size={16} /> Back to {venue.name}
         </a>
       </header>
