@@ -459,7 +459,7 @@ export function BookingWidget({
             </label>
             <ErrorMessage error={bookingError} />
             <p className={styles.finePrint}>
-              Contact details are used to manage your reservation. {venue.name}
+              Contact details are used to manage your reservation. {venue.name}{" "}
               keeps venue-only visit history. You can change or cancel using
               your private confirmation link.
             </p>
