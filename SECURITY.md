@@ -30,4 +30,4 @@ Do not add logging of request bodies, tokens, passwords, connection strings or g
 
 Runtime dependencies are checked separately with `npm audit --omit=dev`. Development tooling can have different exposure: review full `npm audit` output as well. Do not force dependency overrides just to hide an advisory; update the supported upstream package or document the remaining issue. CI and Dependabot support ongoing maintenance.
 
-At the initial release, runtime audit reports no vulnerabilities. The full audit reports nine moderate development-only findings through ESLint/typescript-eslint's minimatch dependencies; compatible upstream fixes are pending. Track this separately from runtime exposure and recheck on dependency updates.
+Runtime audit reports no vulnerabilities. As of 2026-11-14 the full audit reports seven moderate development-only findings, all one advisory: typescript-eslint 8.72.2 (the latest release, pulled in by eslint-config-next) depends on minimatch ^10, and the fix is in minimatch 11. ESLint's own copy was updated. The rest clears when typescript-eslint moves to minimatch 11; recheck on dependency updates.
