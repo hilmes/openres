@@ -20,7 +20,7 @@ The service desk derives contact-based visit summaries directly from retained co
 
 Availability reads do not acquire the inventory write lock; they are advisory, and every mutation rechecks allocation atomically. A bounded cache stores timezone conversion results only, never guest data or booking availability.
 
-A seated overstay continues blocking its table until staff complete the visit. Walk-ins use the actual current minute. Moving a seated party checks the remaining visit against other bookings. Waitlist entries hold no inventory. There is no integration that silently imports external reservations or camera observations.
+A seated overstay continues blocking its table until staff complete the visit. Walk-ins use the actual current minute. Moving a seated party checks the remaining visit against other bookings. Waitlist entries hold no inventory, except a live offer: `advanceWaitlist` in `service.ts` holds a freed table for one waitlisted party until the offer expires, and `availableTables` counts that hold against guest bookings but not staff actions. There is no integration that silently imports external reservations or camera observations.
 
 ## Retention and erasure
 

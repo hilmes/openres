@@ -6,11 +6,11 @@ import { Client } from 'pg';
 const jar=vi.hoisted(()=>({token:''}));
 vi.mock('server-only',()=>({}));
 vi.mock('next/headers',()=>({cookies:async()=>({get:()=>jar.token?{value:jar.token}:undefined,delete:()=>{jar.token='';}})}));
-import { createReservation, eraseGuest, purgeExpired, purgeIfDue, updateSettings } from './service';
-import { DEFAULT_SETTINGS, TABLES } from './model';
+import { advanceWaitlist, createReservation, eraseGuest, purgeExpired, purgeIfDue, updateReservation, updateSettings } from './service';
+import { availability, DEFAULT_SETTINGS, TABLES } from './model';
 import { currentStaff, signIn, signOut } from './auth';
 import { hashPassword } from './password';
-import { readReservation, readVisitSummaries } from './store';
+import { readAvailabilityInventory, readReservation, readVisitSummaries } from './store';
 const url=process.env.OPENRES_TEST_DATABASE_URL;
 describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
   let client:Client;
@@ -66,6 +66,23 @@ describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
     expect(JSON.stringify(result)).not.toContain('@example.com');
   });
 
+  it('holds a freed table for one waitlisted party, hides it from guests and confirms it once under concurrency',async()=>{
+    await updateSettings({...DEFAULT_SETTINGS,enabled:true,waitlistOffers:true,offerMinutes:15,disabledTables:TABLES.filter(t=>t.id!=='11').map(t=>t.id)},'manager');
+    const input=(patch={})=>({id:randomUUID(),requestKey:randomUUID(),date:'2026-11-14',time:'18:00',partySize:2,name:'Synthetic Guest',email:`${randomUUID()}@example.com`,...patch});
+    const seated=(await createReservation(input(),undefined,undefined,now)).reservation;
+    const waiting=[(await createReservation(input({waitlist:true}),undefined,undefined,now)).reservation,(await createReservation(input({waitlist:true}),undefined,undefined,new Date(now.getTime()+1000))).reservation];
+    await updateReservation(seated.id,{version:1,status:'cancelled'},'host',now);
+    // Two server instances notice the freed table at once: exactly one offer is made.
+    const passes=await Promise.all([advanceWaitlist('2026-11-14',now),advanceWaitlist('2026-11-14',now)]);
+    expect(passes.flat().map(r=>r.id)).toEqual([waiting[0].id]);
+    const inventory=await readAvailabilityInventory('2026-11-14');
+    expect(availability('2026-11-14',2,'any',inventory.reservations,inventory.settings,now).some(slot=>slot.time==='18:00')).toBe(false);
+    await expect(createReservation(input(),undefined,undefined,now)).rejects.toMatchObject({status:409});
+    const claims=await Promise.allSettled([updateReservation(waiting[0].id,{version:2,status:'confirmed'},undefined,now),updateReservation(waiting[0].id,{version:2,status:'confirmed'},undefined,now)]);
+    expect(claims.filter(c=>c.status==='fulfilled')).toHaveLength(1);
+    expect(await readReservation(waiting[0].id)).toMatchObject({status:'confirmed',tableId:'11'});
+    expect((await readReservation(waiting[1].id))?.offer).toBeUndefined();
+  });
   describe('retention and erasure',()=>{
     const past=async(patch:Record<string,unknown>={})=>{
       const record={id:randomUUID(),date:'2026-09-01',time:'18:00',partySize:2,area:'any',tableId:'11',duration:90,name:'Dana Example',email:'dana@example.com',phone:'+1 (212) 555-0100',notes:'Allergy: shellfish',staffNotes:'Regular',occasion:'',status:'completed',source:'online',createdAt:'2026-08-20T12:00:00.000Z',updatedAt:'2026-09-01T23:00:00.000Z',version:1,history:[],match:{kind:'none'},...patch};

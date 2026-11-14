@@ -4,8 +4,8 @@ const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn()
 vi.mock('server-only',()=>({}));
 vi.mock('@/lib/openres/auth',()=>({currentStaff:mocks.currentStaff}));
 vi.mock('@/lib/openres/store',()=>({localMode:()=>false,...mocks}));
-vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
-vi.mock('@/lib/openres/email',()=>({sendReservationEmail:vi.fn()}));
+vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),advanceWaitlist:vi.fn(async()=>[]),advanceWaitlistIfDue:vi.fn(async()=>[]),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
+vi.mock('@/lib/openres/email',()=>({sendReservationEmail:vi.fn(),sendOfferEmail:vi.fn()}));
 import { GET as desk } from './desk/route';
 import { GET as exportBook } from './export/route';
 import { GET as guest } from './reservations/[id]/route';

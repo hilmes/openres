@@ -9,6 +9,7 @@ import {
   BookingError,
   FINAL_STATUSES,
   FORMER_GUEST,
+  liveOffer,
   bookingSchema,
   minutes,
   timeString,
@@ -239,6 +240,8 @@ export async function createReservation(
         settings,
         undefined,
         now,
+        settings.duration,
+        !actor,
       );
       const requestedTable = "tableId" in input ? input.tableId : undefined;
       const table = requestedTable
@@ -339,7 +342,8 @@ export async function updateReservation(
       !actor &&
       (input.staffNotes !== undefined ||
         input.tableId !== undefined ||
-        (input.status && input.status !== "cancelled"))
+        // A guest may cancel, or confirm a table that is being held for them.
+        (input.status && input.status !== "cancelled" && !(input.status === "confirmed" && liveOffer(record, now))))
     )
       throw new BookingError("This action is for staff only.", 403);
     if (!actor && !["confirmed", "waitlisted"].includes(record.status))
@@ -440,10 +444,11 @@ export async function updateReservation(
                 minutes(next.time) + next.duration - moveClock.minutes,
               )
             : next.duration,
+          !actor,
         );
         const table = input.tableId
           ? candidates.find((t) => t.id === input.tableId)
-          : candidates.find((t) => t.id === record.tableId) || candidates[0];
+          : candidates.find((t) => t.id === (record.offer?.tableId ?? record.tableId)) || candidates[0];
         if (!table)
           throw new BookingError(
             "No suitable table is free for this visit. Choose another table or time.",
@@ -452,6 +457,8 @@ export async function updateReservation(
         next.tableId = table.id;
       }
     }
+    // An offer belongs to the waitlisted request as it stood: any change of slot or status ends it.
+    if (next.offer && (changesSlot || next.status !== "waitlisted")) delete next.offer;
     if (input.match && next.provenance)
       next.provenance = {
         ...next.provenance,
@@ -594,4 +601,60 @@ export async function eraseGuest(id: string, actor: string, now = new Date()) {
     inventory.audit.push({ actor, action: "guest_erasure", scope: `records=${records.length}; matched=${contact?.kind || "record"}` });
     return { erased: records.length };
   });
+}
+
+/**
+ * Move the waitlist for one service date: let lapsed offers go, then hold each free table
+ * for the next waitlisted party it fits. Returns the parties newly offered a table, for the
+ * caller to notify. Does nothing unless the venue switched waitlist offers on.
+ */
+export async function advanceWaitlist(date: string, now = new Date()): Promise<Reservation[]> {
+  return withInventory(date, "", (inventory) => {
+    const { settings } = inventory;
+    if (!settings.waitlistOffers) return [];
+    const at = now.toISOString();
+    const touch = (record: Reservation, action: string, fields: string[]) => {
+      record.version += 1;
+      record.updatedAt = at;
+      record.history = [...record.history, { at, actor: "System", action, version: record.version, fields, state: auditState(record) }];
+    };
+    const waiting = inventory.reservations.filter((r) => r.date === date && r.status === "waitlisted");
+    for (const record of waiting) {
+      if (!record.offer || liveOffer(record, now)) continue;
+      delete record.offer;
+      record.offersMissed = (record.offersMissed || 0) + 1;
+      touch(record, "Table offer expired", ["offer"]);
+    }
+    const offered: Reservation[] = [];
+    const queue = waiting
+      .filter((r) => !r.offer)
+      .sort((a, b) => (a.offersMissed || 0) - (b.offersMissed || 0) || a.createdAt.localeCompare(b.createdAt));
+    for (const record of queue) {
+      try {
+        validateSlot(record, { ...settings, duration: record.duration }, now);
+      } catch {
+        continue; // The requested time has passed or the day closed; staff can still seat them.
+      }
+      // Earlier offers in this pass already count as held, so one table is never offered twice.
+      const table = availableTables(record, inventory.reservations, settings, record.id, now, record.duration)[0];
+      if (!table) continue;
+      record.offer = { tableId: table.id, offeredAt: at, expiresAt: new Date(now.getTime() + (settings.offerMinutes ?? 15) * 60000).toISOString() };
+      touch(record, "Offered a table", ["offer"]);
+      offered.push(record);
+    }
+    return offered;
+  });
+}
+const waitlistChecked = new Map<string, number>();
+/** The same, at most once a minute per date and server instance: called from desk reads so offers expire without a scheduler. */
+export async function advanceWaitlistIfDue(date: string, now = new Date()): Promise<Reservation[]> {
+  if (now.getTime() - (waitlistChecked.get(date) || 0) < 60000) return [];
+  if (waitlistChecked.size > 64) waitlistChecked.clear();
+  waitlistChecked.set(date, now.getTime());
+  try {
+    return await advanceWaitlist(date, now);
+  } catch (error) {
+    console.error("[openres] waitlist pass failed", error instanceof Error ? error.name : "UnknownError");
+    return [];
+  }
 }

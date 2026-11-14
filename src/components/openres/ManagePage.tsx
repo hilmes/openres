@@ -26,6 +26,7 @@ export function ManagePage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<"edit" | "cancel" | null>(null);
+  const [loadedAt] = useState(() => Date.now());
   useEffect(() => {
     const [id, token] = window.location.hash.slice(1).split(".");
     if (!id || !token) {
@@ -95,6 +96,10 @@ export function ManagePage() {
       ) : reservation?.match,
     });
   }
+  // Shown only while the hold is live; the server decides again when the guest confirms.
+  const offerUntil = reservation?.offer && Date.parse(reservation.offer.expiresAt) > loadedAt
+    ? new Date(reservation.offer.expiresAt).toLocaleTimeString(venue.locale, { hour: "numeric", minute: "2-digit", timeZone: venue.timeZone })
+    : "";
   return (
     <div className={styles.guest} data-openres-private>
       <header className={styles.guestHeader}>
@@ -124,11 +129,20 @@ export function ManagePage() {
             <p>
               <MapPin size={16} /> {venue.address}
             </p>
-            {reservation.status === "waitlisted" && (
+            {reservation.status === "waitlisted" && (offerUntil ? (
+              <div className={styles.success} role="status">
+                <span>
+                  <strong>A table is ready for you.</strong> We are holding it until {offerUntil}. After that it goes to the next party.
+                </span>
+                <button className={styles.primaryButton} disabled={busy} onClick={() => update({ status: "confirmed" })}>
+                  {busy ? "Confirming…" : "Confirm my table"}
+                </button>
+              </div>
+            ) : (
               <p className={styles.error}>
                 You’re on the waitlist. A table is not yet confirmed.
               </p>
-            )}
+            ))}
             {reservation.notes && (
               <div className={styles.guestNote}>
                 <strong>Your notes</strong>

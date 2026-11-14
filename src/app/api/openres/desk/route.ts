@@ -9,12 +9,14 @@ import {
   recordAccessAudit,
 } from "@/lib/openres/store";
 import {
+  advanceWaitlist,
+  advanceWaitlistIfDue,
   createReservation,
   purgeIfDue,
   updateReservation,
   visitHistory,
 } from "@/lib/openres/service";
-import { sendReservationEmail } from "@/lib/openres/email";
+import { sendOfferEmail, sendReservationEmail } from "@/lib/openres/email";
 export async function GET(request: Request) {
   return handle(async () => {
     const params = new URL(request.url).searchParams;
@@ -22,6 +24,8 @@ export async function GET(request: Request) {
     if (access instanceof Response) return access;
     const date = dateSchema.parse(params.get("date") || venueNow().date);
     await purgeIfDue();
+    // Lapsed waitlist offers pass to the next party here, so no scheduler is needed while a desk is open.
+    if (params.get("view") !== "guests") await Promise.all((await advanceWaitlistIfDue(date)).map(sendOfferEmail));
     const [reservations, settings] = await Promise.all([
       readReservations(params.get("view") === "guests" ? undefined : date),
       readSettings(),
@@ -75,6 +79,8 @@ export async function PATCH(request: Request) {
     const emailed = guestChange
       ? await sendReservationEmail(reservation)
       : false;
+    // A cancellation, no-show, completion or move may have freed a table for the waitlist.
+    await Promise.all((await advanceWaitlist(reservation.date)).map(sendOfferEmail));
     return json({ reservation, emailed });
   });
 }
