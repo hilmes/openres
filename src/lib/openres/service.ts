@@ -2,11 +2,14 @@ import "server-only";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { venue } from '@/config/venue';
+import { paymentAdapter } from '@/config/payments';
 const floorPlanRevision = createHash('sha256').update(JSON.stringify(venue.floor) + JSON.stringify(venue.tables)).digest('hex');
 import {
   addDays,
   availableTables,
   BookingError,
+  depositDue,
+  depositLapsed,
   FINAL_STATUSES,
   FORMER_GUEST,
   liveOffer,
@@ -21,9 +24,11 @@ import {
   type Reservation,
   type BookingFixture,
   type MatchPreference,
+  type Payment,
   type VisitHistory,
 } from "./model";
-import { claimOnce, consumeAuthLimit, localMode, readReservation, readSettings, withGuestRecords, withInventory } from "./store";
+import { wallTimeToISO } from "./time";
+import { claimOnce, consumeAuthLimit, localMode, readReservation, readReservations, readSettings, withGuestRecords, withInventory } from "./store";
 import { visitorContact } from "./visitors";
 
 function secret() {
@@ -303,11 +308,38 @@ export async function createReservation(
         state: auditState(reservation),
         matchSource: reservation.provenance!.match.source,
       };
+      // Online bookings pay the venue's deposit, if it asks for one. Staff entries and waitlist joins do not.
+      const due = actor || input.waitlist ? 0 : depositDue(input, settings);
+      if (due > 0) {
+        if (!paymentAdapter) throw new BookingError("Deposits are not available right now. Please contact the venue.", 503);
+        const start = Date.parse(wallTimeToISO(input.date, input.time, venue.timeZone));
+        reservation.payment = {
+          amount: due, currency: paymentAdapter.currency, status: "pending", intentId: "",
+          expiresAt: new Date(now.getTime() + settings.deposit.payMinutes * 60000).toISOString(),
+          refundableUntil: new Date(start - settings.deposit.refundHours * 3600000).toISOString(),
+        };
+        reservation.history[0].action = "Created reservation; deposit pending";
+      }
       reservations.push(reservation);
       return { reservation, created: true };
     },
   );
-  return { ...result, token };
+  const pending = result.reservation.payment?.status === "pending" ? result.reservation.payment : null;
+  if (!pending || actor) return { ...result, token };
+  // The provider is called outside the inventory lock. A retry reaches the same payment.
+  try {
+    if (!paymentAdapter) throw new Error("No payment adapter");
+    const intent = await paymentAdapter.create({ reservationId: input.id, amount: pending.amount, description: `${venue.name} deposit, ${input.date} ${input.time}, ${input.partySize} guests` });
+    if (pending.intentId !== intent.id) await setPayment(input.date, input.id, { intentId: intent.id });
+    return {
+      ...result, token,
+      reservation: { ...result.reservation, payment: { ...pending, intentId: intent.id } },
+      payment: { clientSecret: intent.clientSecret, amount: pending.amount, currency: pending.currency, expiresAt: pending.expiresAt },
+    };
+  } catch {
+    await releaseUnpaid(input.date, input.id, "Deposit could not be started", now).catch(() => {});
+    throw new BookingError("We could not start the deposit payment. You have not been charged. Please try again.", 503);
+  }
 }
 // PATCH must preserve omitted fields: Zod 4 applies defaults even inside .partial().
 export const updateSchema = z.object({
@@ -492,6 +524,7 @@ export async function updateReservation(
 }
 export async function updateSettings(raw: unknown, actor = "System") {
   const input = settingsSchema.parse(raw);
+  if (input.deposit.enabled && !paymentAdapter) throw new BookingError("No payment provider is set up for this installation, so deposits cannot be switched on.", 409);
   return withInventory("", "", (inventory) => {
     if (input.version !== inventory.settings.version)
       throw new BookingError("Settings changed. Refresh and try again.", 409);
@@ -656,5 +689,138 @@ export async function advanceWaitlistIfDue(date: string, now = new Date()): Prom
   } catch (error) {
     console.error("[openres] waitlist pass failed", error instanceof Error ? error.name : "UnknownError");
     return [];
+  }
+}
+
+/** Change a booking's payment record under the inventory lock, with an audit entry when it is an event. */
+async function setPayment(date: string, id: string, patch: Partial<Payment>, action?: string, actor = "System", now = new Date()) {
+  return withInventory(date, id, (inventory) => {
+    const record = inventory.reservations.find((r) => r.id === id);
+    if (!record?.payment) return record;
+    record.payment = { ...record.payment, ...patch };
+    if (action) {
+      record.version += 1;
+      record.updatedAt = now.toISOString();
+      record.history = [...record.history, { at: record.updatedAt, actor, action, version: record.version, fields: ["payment"], state: auditState(record) }];
+    }
+    return record;
+  });
+}
+/** Cancel a booking that was never paid for and void its payment. */
+async function releaseUnpaid(date: string, id: string, action: string, now = new Date()) {
+  const released = await withInventory(date, id, (inventory) => {
+    const record = inventory.reservations.find((r) => r.id === id);
+    if (!record || record.payment?.status !== "pending") return undefined;
+    record.payment = { ...record.payment, status: "void", settledAt: now.toISOString() };
+    delete record.payment.expiresAt;
+    if (!["cancelled", "completed", "no_show"].includes(record.status)) record.status = "cancelled";
+    record.version += 1;
+    record.updatedAt = now.toISOString();
+    record.history = [...record.history, { at: record.updatedAt, actor: "System", action, version: record.version, fields: ["status", "payment"], state: auditState(record) }];
+    return record;
+  });
+  if (released?.payment?.intentId) await paymentAdapter?.cancel(released.payment.intentId).catch(() => {});
+  return released;
+}
+/**
+ * Record a deposit the provider says was paid. The provider is the source of truth: the amount
+ * and success are read from it, never from the browser. If the booking lapsed and its table has
+ * since gone to someone else, the guest is refunded in full instead.
+ */
+export async function confirmPayment(id: string, now = new Date()): Promise<Reservation> {
+  const record = await readReservation(id);
+  if (!record) throw new BookingError("Reservation not found.", 404);
+  if (record.payment?.status !== "pending") return record;
+  if (!paymentAdapter || !record.payment.intentId) throw new BookingError("Deposits are not available right now. Please contact the venue.", 503);
+  const state = await paymentAdapter.status(record.payment.intentId);
+  if (!state.paid || state.amount < record.payment.amount) throw new BookingError("The deposit has not been paid yet.", 402);
+  let tableGone = false;
+  const next = await withInventory(record.date, id, (inventory) => {
+    const current = inventory.reservations.find((r) => r.id === id);
+    if (!current?.payment || current.payment.status !== "pending") return current;
+    const stillHeld = current.status === "confirmed" && (!depositLapsed(current, now) ||
+      availableTables(current, inventory.reservations, inventory.settings, id, now, current.duration, false).some((t) => t.id === current.tableId));
+    current.version += 1;
+    current.updatedAt = now.toISOString();
+    if (stillHeld) {
+      current.payment = { ...current.payment, status: "paid", paidAt: current.updatedAt };
+      delete current.payment.expiresAt;
+    } else {
+      tableGone = true;
+      if (current.status === "confirmed") current.status = "cancelled";
+    }
+    current.history = [...current.history, { at: current.updatedAt, actor: "Guest", action: stillHeld ? "Deposit paid" : "Deposit arrived after the table was released", version: current.version, fields: stillHeld ? ["payment"] : ["status", "payment"], state: auditState(current) }];
+    return current;
+  });
+  if (tableGone) {
+    await refundDeposit(record.date, id, record.payment.intentId, "System", now);
+    throw new BookingError("Your table was released before the deposit arrived. You have been refunded in full. Please book again.", 409);
+  }
+  return next || record;
+}
+/** Return a deposit through the provider. If the provider refuses, the record says so for staff to resolve. */
+async function refundDeposit(date: string, id: string, intentId: string, actor: string, now = new Date()) {
+  try {
+    if (!paymentAdapter) throw new Error("No payment adapter");
+    await paymentAdapter.refund(intentId);
+    return await setPayment(date, id, { status: "refunded", settledAt: now.toISOString(), refundFailed: false }, "Deposit refunded", actor, now);
+  } catch {
+    console.error("[openres] deposit refund failed");
+    return await setPayment(date, id, { refundFailed: true }, "Deposit refund failed", actor, now);
+  }
+}
+/**
+ * Settle the deposit after a booking ends. A completed visit applies it to the bill; a no-show
+ * forfeits it; a cancellation refunds it unless the guest cancelled after the cutoff they were
+ * shown when they booked. A venue cancelling always refunds.
+ */
+export async function settleDeposit(id: string, now = new Date()): Promise<Reservation | null> {
+  const record = await readReservation(id);
+  if (!record?.payment) return record;
+  const { payment } = record;
+  if (payment.status === "pending" && record.status === "cancelled") return (await releaseUnpaid(record.date, id, "Booking cancelled before the deposit was paid", now)) || record;
+  if (payment.status !== "paid") return record;
+  const settledAt = now.toISOString();
+  if (record.status === "completed") return (await setPayment(record.date, id, { status: "applied", settledAt }, "Deposit applied to the bill", "System", now)) || record;
+  if (record.status === "no_show") return (await setPayment(record.date, id, { status: "forfeited", settledAt }, "Deposit kept: no-show", "System", now)) || record;
+  if (record.status !== "cancelled") return record;
+  const byGuest = record.history.at(-1)?.actor === "Guest";
+  if (byGuest && now.getTime() > Date.parse(payment.refundableUntil))
+    return (await setPayment(record.date, id, { status: "forfeited", settledAt }, "Deposit kept: cancelled after the refund cutoff", "System", now)) || record;
+  return (await refundDeposit(record.date, id, payment.intentId, byGuest ? "Guest" : "System", now)) || record;
+}
+/** A manager returns a deposit that was paid or kept, whatever the policy says. */
+export async function refundDepositNow(id: string, actor: string, now = new Date()) {
+  const record = await readReservation(id);
+  if (!record?.payment) throw new BookingError("This reservation has no deposit.", 404);
+  if (!["paid", "forfeited"].includes(record.payment.status)) throw new BookingError("This deposit cannot be refunded.", 409);
+  const next = await refundDeposit(record.date, id, record.payment.intentId, actor, now);
+  if (next?.payment?.status !== "refunded") throw new BookingError("The payment provider refused the refund. Resolve it with the provider.", 502);
+  return next;
+}
+const depositsChecked = new Map<string, number>();
+/**
+ * Clear bookings on one date whose time to pay has run out. The provider is asked first: a guest
+ * who paid but never returned to the page is confirmed, not cancelled. At most once a minute per
+ * date and server instance; called from desk reads.
+ */
+export async function settleLapsedDeposits(date: string, now = new Date(), force = false) {
+  if (!force) {
+    if (now.getTime() - (depositsChecked.get(date) || 0) < 60000) return;
+    if (depositsChecked.size > 64) depositsChecked.clear();
+    depositsChecked.set(date, now.getTime());
+  }
+  try {
+    const lapsed = (await readReservations(date)).filter((r) => r.status === "confirmed" && depositLapsed(r, now));
+    for (const record of lapsed) {
+      try {
+        await confirmPayment(record.id, now);
+      } catch (error) {
+        // 402: not paid. 409: paid too late and refunded. Anything else: leave it for the next pass.
+        if (error instanceof BookingError && error.status === 402) await releaseUnpaid(date, record.id, "Deposit not completed in time", now);
+      }
+    }
+  } catch (error) {
+    console.error("[openres] deposit pass failed", error instanceof Error ? error.name : "UnknownError");
   }
 }

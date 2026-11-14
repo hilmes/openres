@@ -11,6 +11,8 @@ import { ArrowUpRight, CalendarDays, ChevronRight, Users } from "lucide-react";
 import {
   addDays,
   AREAS,
+  depositDue,
+  moneyLabel,
   dateLabel,
   matchLabel,
   minutes,
@@ -20,10 +22,12 @@ import {
   type GuestReservation,
   type BookingFixture,
   type MatchPreference,
+  type Settings,
 } from "@/lib/openres/model";
 import { api, downloadCalendar, ErrorMessage, Modal } from "./shared";
 import { MatchPicker } from "./MatchPicker";
 import { usePaths } from "./paths";
+import { PaymentSlot } from "./payment";
 import styles from "./openres.module.css";
 
 type Availability = {
@@ -32,7 +36,9 @@ type Availability = {
   advanceDays: number;
   duration: number;
   local: boolean;
+  deposit?: Settings["deposit"] & { currency: string };
 };
+type PaymentStep = Receipt & { payment: { clientSecret: string; amount: number; currency: string; expiresAt?: string } };
 type Receipt = {
   reservation: GuestReservation;
   token: string;
@@ -86,6 +92,7 @@ export function BookingWidget({
     waitlist: boolean;
   } | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [paying, setPaying] = useState<PaymentStep | null>(null);
   const [busy, setBusy] = useState(false);
   const [bookingError, setBookingError] = useState("");
   const [notice, setNotice] = useState("");
@@ -134,7 +141,7 @@ export function BookingWidget({
     setBookingError("");
     const form = new FormData(event.currentTarget);
     try {
-      const result = await api<Receipt>(`${paths.api}/reservations`, {
+      const result = await api<Receipt & Partial<PaymentStep>>(`${paths.api}/reservations`, {
         method: "POST",
         body: JSON.stringify({
           id: requestId.current,
@@ -152,8 +159,32 @@ export function BookingWidget({
           waitlist: selection.waitlist,
         }),
       });
-      setReceipt(result);
       setSelection(null);
+      setRefresh((v) => v + 1);
+      // With a deposit due, the booking is only held until the card form completes.
+      if (result.payment) {
+        setPaying(result as PaymentStep);
+        return;
+      }
+      setReceipt(result);
+      onBooked?.(result.reservation);
+    } catch (e) {
+      setBookingError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** The card form finished: ask the server, which asks the provider, before showing a confirmation. */
+  const paid = async () => {
+    if (!paying) return;
+    setBusy(true);
+    setBookingError("");
+    try {
+      const result = await api<Omit<Receipt, "token">>(`${paths.api}/reservations/${paying.reservation.id}`, {
+        method: "POST", body: "{}", headers: { Authorization: `Bearer ${paying.token}` },
+      });
+      setReceipt({ ...result, token: paying.token });
+      setPaying(null);
       setRefresh((v) => v + 1);
       onBooked?.(result.reservation);
     } catch (e) {
@@ -162,6 +193,7 @@ export function BookingWidget({
       setBusy(false);
     }
   };
+  const due = match && !selection?.waitlist && data?.deposit ? depositDue({ partySize, match }, { deposit: data.deposit }) : 0;
   const copyLink = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -393,6 +425,12 @@ export function BookingWidget({
                   ? "A waitlist request is not a confirmed reservation."
                   : `${data?.duration || 90} minute visit · ${venue.timeZone}`}
               </small>
+              {due > 0 && data?.deposit && (
+                <small>
+                  <strong>{moneyLabel(due, data.deposit.currency)} deposit today</strong> ({moneyLabel(data.deposit.perGuest, data.deposit.currency)} per guest). It comes off your bill.{" "}
+                  {data.deposit.refundHours > 0 ? `Refunded if you cancel at least ${data.deposit.refundHours} hours before.` : "Refunded if you cancel before your visit."}
+                </small>
+              )}
             </div>
             {selection.waitlist && (
               <label>
@@ -468,10 +506,24 @@ export function BookingWidget({
                 ? "Saving your spot…"
                 : selection.waitlist
                   ? "Join the waitlist"
-                  : "Confirm reservation"}
+                  : due > 0 ? "Continue to deposit" : "Confirm reservation"}
               <ChevronRight size={16} />
             </button>
           </form>
+        </Modal>
+      )}
+      {paying && (
+        <Modal busy={busy} title="Pay your deposit" onClose={() => { if (!busy) { setPaying(null); setNotice("Your table is held for a few minutes. Book again to pay the deposit."); } }}>
+          <div className={styles.bookingForm}>
+            <div className={styles.bookingSummary}>
+              <strong>{moneyLabel(paying.payment.amount, paying.payment.currency)} deposit</strong>
+              <span>{dateLabel(paying.reservation.date)} · {timeLabel(paying.reservation.time)} · {paying.reservation.partySize} guests</span>
+              <small>Your table is held while you pay. The deposit comes off your bill.</small>
+            </div>
+            <ErrorMessage error={bookingError} />
+            <PaymentSlot clientSecret={paying.payment.clientSecret} amount={paying.payment.amount} currency={paying.payment.currency} onPaid={paid} onError={setBookingError}
+              fallback={<p role="alert" className={styles.error}>Card payment is not set up here. Please contact the venue.</p>} />
+          </div>
         </Modal>
       )}
       {receipt && (
@@ -495,6 +547,9 @@ export function BookingWidget({
               <br />
               {receipt.reservation.partySize} guests · {venue.name}
             </p>
+            {receipt.reservation.payment?.status === "paid" && (
+              <p>{moneyLabel(receipt.reservation.payment.amount, receipt.reservation.payment.currency)} deposit paid. It comes off your bill.</p>
+            )}
             <p>
               {receipt.reservation.status === "waitlisted"
                 ? "We’ll contact you if a table becomes available. Your table is not yet confirmed."

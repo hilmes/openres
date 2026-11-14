@@ -26,6 +26,10 @@ A seated overstay continues blocking its table until staff complete the visit. W
 
 `purgeExpired` and `eraseGuest` in `service.ts` anonymize records in place under the same transaction lock as bookings: the row keeps its ID, date, time, party, table, status and source, and loses everything that identifies the guest. `purgeIfDue` is called on staff desk reads and claims one run per venue day through `openres_limits`, so no scheduler is required and concurrent instances do not repeat the pass. Anonymized rows are excluded from repeat-visit matching because they no longer have a contact.
 
+## Deposits
+
+A reservation's `payment` moves from `pending` to `paid`, then to `applied`, `refunded`, `forfeited` or `void`. The provider is always the source of truth: `confirmPayment` reads success and amount from the adapter, never from the request. The adapter is called outside the inventory lock and the result is recorded under it, so a slow provider never blocks bookings. `depositLapsed` makes an unpaid, expired booking stop counting against availability immediately; `settleLapsedDeposits` (desk reads, once a minute per date) then confirms or cancels it. `settleDeposit` applies the cancellation policy stored on the payment when the guest booked.
+
 ## Adapters and extension points
 
 Email delivery is optional and isolated in `email.ts`; the bundled adapter uses a venue-configured Resend sender. Fixtures default to an operator-managed catalog with no outbound feed request. Replace that adapter explicitly if a venue needs a licensed provider feed, preserving source IDs and capture timestamps. A fixture attestation is not a screening promise.
@@ -40,4 +44,4 @@ The application is MIT licensed. Dependency licenses remain their own and are re
 
 ## Known first-release work
 
-Individually expiring guest links, passkeys/SSO, multi-venue isolation, table combinations, overnight service, payments and notification channels beyond email are not implemented. A retention period and physical tablet acceptance testing must precede a live venue rollout. These limits are surfaced in the README rather than represented as completed features.
+Individually expiring guest links, passkeys/SSO, multi-venue isolation, table combinations, overnight service, notification channels beyond email, and writing deposits to a point of sale, are not implemented. A retention period and physical tablet acceptance testing must precede a live venue rollout. These limits are surfaced in the README rather than represented as completed features.

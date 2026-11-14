@@ -48,6 +48,18 @@ Use a separate PostgreSQL database for each venue. The application is portable a
 
 For self-hosting, terminate HTTPS at a trusted reverse proxy. Keep the Node port private. Set `OPENRES_TRUST_PROXY=1` only when the proxy overwrites `X-Forwarded-For`; otherwise callers cannot supply their own rate-limit identity and requests share a conservative fallback bucket. No production data or credentials are needed for the demo.
 
+## Deposits
+
+Off by default, and unavailable until the installation supplies a payment provider. OpenRes bundles none: implement the four-function `PaymentAdapter` (`src/lib/openres/payments.ts`) in `src/config/payments.ts`, and give the booking widget the provider's card form through `OpenResPaymentProvider` (`src/components/openres/payment.tsx`). Card details go from the browser straight to the provider; OpenRes stores an amount, a status and the provider's payment ID.
+
+With Settings → Deposits switched on, a manager sets the amount per guest, the smallest party that pays, whether only match bookings pay, the refund cutoff and the minutes allowed to pay.
+
+- The guest sees the deposit and the refund rule before entering their details, then pays in the provider's form. The table is held meanwhile. The reservation is confirmed, and the confirmation sent, only once the server has asked the provider and found the full amount paid.
+- An unpaid booking stops holding its table when its time runs out. Before it is cancelled the provider is asked once more, so a guest who paid and closed the page is confirmed, not cancelled. If the money arrives after the table went to someone else, it is refunded in full.
+- A guest who cancels before the cutoff shown when they booked is refunded automatically. Later cancellations and no-shows keep the deposit; a manager can refund it anyway. A cancellation from the desk always refunds. A completed visit marks the deposit as applied to the bill.
+- Reservations entered by staff and waitlist requests take no deposit. A deposit does not change if the party size is edited later.
+- OpenRes does not write to your point of sale. The desk shows the amount to take off the bill.
+
 ## Waitlist offers
 
 Off by default. With Settings → Waitlist switched on, a table freed by a cancellation, no-show, completed visit or move is held for the first waitlisted party it fits, and that party is emailed their private link to confirm within a set time (15 minutes by default). Guests cannot book a held table online; staff still can, and the offer then fails cleanly when the guest tries to confirm. An offer that is not confirmed passes to the next party, and the party that missed it keeps its place behind those who have missed fewer. Lapsed offers are passed on while a staff desk is open; no scheduler is required. This needs email delivery to be configured, and nothing is sent in demo mode.
@@ -100,6 +112,6 @@ Custom guest booking integrations must send an independently generated UUID `req
 
 ## Current scope
 
-This is an initial implementation, not full feature parity with a commercial reservation platform. Bookings support 1–8 guests and one table per party, with service windows that finish within the same venue date. Payments, deposits, SMS, combined tables, multi-venue tenancy and passkeys/SSO are not included. No offline guest-data cache is used; booking and table changes require a connection. Physical iPad/browser acceptance testing is required before venue rollout.
+This is an initial implementation, not full feature parity with a commercial reservation platform. Bookings support 1–8 guests and one table per party, with service windows that finish within the same venue date. SMS, combined tables, multi-venue tenancy and passkeys/SSO are not included. No offline guest-data cache is used; booking and table changes require a connection. Physical iPad/browser acceptance testing is required before venue rollout.
 
 MIT licensed. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
