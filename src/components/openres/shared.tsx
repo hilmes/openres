@@ -7,6 +7,7 @@ import {
   timeLabel,
   type GuestReservation,
 } from "@/lib/openres/model";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
@@ -72,9 +73,10 @@ export function Modal({
   );
 }
 export function Brand({ dark = false }: { dark?: boolean }) {
+  const paths = usePaths();
   return (
     <a
-      href="/book"
+      href={paths.book}
       className={`${styles.brand} ${dark ? styles.brandDark : ""}`}
       aria-label="OpenRes home"
     >
@@ -87,10 +89,11 @@ export function Brand({ dark = false }: { dark?: boolean }) {
   );
 }
 export function PreviewBanner({ local }: { local: boolean }) {
+  const paths = usePaths();
   return local ? (
     <div className={styles.preview}>
       Local preview · Sample reservations · No guest emails sent{" "}
-      <a href="/staff">Open staff desk ↗</a>
+      <a href={paths.staff}>Open staff desk ↗</a>
     </div>
   ) : null;
 }

@@ -1,4 +1,5 @@
 import { venue } from "@/config/venue";
+import { DEFAULT_PATHS } from "@/lib/openres/paths";
 import { BookingWidget, type BookingWidgetProps } from "./BookingWidget";
 import { PreviewBanner } from "./shared";
 import styles from "./openres.module.css";
@@ -22,7 +23,7 @@ export function GuestPage({
         <BookingWidget {...prefill} />
         <footer className={styles.simpleFooter}>
           {venue.menuUrl && <a href={venue.menuUrl}>Menu</a>}
-          <a href="/staff">
+          <a href={DEFAULT_PATHS.staff}>
             Staff desk
           </a>
         </footer>

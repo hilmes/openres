@@ -3,8 +3,10 @@ import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { venue } from '@/config/venue';
 import { api, Brand, ErrorMessage } from './shared';
+import { usePaths } from "./paths";
 import styles from './openres.module.css';
 export function StaffLogin() {
+  const paths = usePaths();
   const router = useRouter();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -12,8 +14,8 @@ export function StaffLogin() {
     event.preventDefault(); setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
     try {
-      await api('/api/openres/login', { method: 'POST', body: JSON.stringify({ username: form.get('username'), password: form.get('password') }) });
-      router.push('/staff');
+      await api(`${paths.api}/login`, { method: 'POST', body: JSON.stringify({ username: form.get('username'), password: form.get('password') }) });
+      router.push(paths.staff);
       router.refresh();
     } catch (error) { setError((error as Error).message); setBusy(false); }
   }

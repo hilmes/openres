@@ -50,6 +50,7 @@ import { api, ErrorMessage, Modal, PreviewBanner } from "./shared";
 import { tableReservationAt } from "./FloorMap";
 import { ShiftFloor } from "./ShiftFloor";
 import { SettingsPanel } from "./SettingsPanel";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 
 type DeskData = {
@@ -77,6 +78,7 @@ function NewReservation({
   initialSource?: "phone" | "walk_in";
   tableId?: string;
 }) {
+  const paths = usePaths();
   const [id] = useState(() => crypto.randomUUID());
   const [source, setSource] = useState<string>(initialSource);
   const [busy, setBusy] = useState(false);
@@ -92,7 +94,7 @@ function NewReservation({
     const form = new FormData(e.currentTarget);
     try {
       const current = venueNow();
-      const result = await api<{ reservation: Reservation }>("/api/openres/desk", {
+      const result = await api<{ reservation: Reservation }>(`${paths.api}/desk`, {
         method: "POST",
         body: JSON.stringify({
           id,
@@ -331,6 +333,7 @@ function ReservationEditor({
   );
 }
 export function StaffDesk({ local = false }: { local?: boolean }) {
+  const paths = usePaths();
   const [date, setDate] = useState(() => venueNow().date);
   const [tab, setTab] = useState<Tab>("reservations");
   const [view, setView] = useState<View>("floor");
@@ -388,7 +391,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
       if (!quiet) setLoading(true);
       try {
         const result = await api<DeskData>(
-          `/api/openres/desk?date=${date}${tab === "guests" ? "&view=guests" : ""}`,
+          `${paths.api}/desk?date=${date}${tab === "guests" ? "&view=guests" : ""}`,
         );
         if (
           current === generation.current &&
@@ -414,7 +417,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
         if (current === generation.current) setLoading(false);
       }
     },
-    [date, tab],
+    [date, tab, paths.api],
   );
   useEffect(() => {
     const requestGeneration = generation;
@@ -456,7 +459,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
     setPrivacyPaused(true);
     setError("");
     try {
-      await api("/api/openres/lock", { method: "POST", body: "{}" });
+      await api(`${paths.api}/lock`, { method: "POST", body: "{}" });
     } catch {
       setError(
         "Guest details are hidden. The server could not confirm the lock; close this tab if leaving the device.",
@@ -515,7 +518,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
     setNotice("");
     try {
       const result = await api<{ reservation: Reservation; emailed: boolean }>(
-        "/api/openres/desk",
+        `${paths.api}/desk`,
         {
           method: "PATCH",
           body: JSON.stringify({
@@ -603,7 +606,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
     <div className={styles.desk} data-openres-private>
       <PreviewBanner local={local} />
       <header className={styles.leanHeader}>
-        <a href="/staff" className={styles.leanBrand}>
+        <a href={paths.staff} className={styles.leanBrand}>
           OpenRes <span>{venue.name}</span>
         </a>
         <nav aria-label="Reservation desk">
@@ -620,7 +623,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
         <button className={styles.lockDesk} onClick={lockDesk}>
           <LockKeyhole size={16} /> Lock desk
         </button>
-        <a href="/book" target="_blank" rel="noreferrer">
+        <a href={paths.book} target="_blank" rel="noreferrer">
           Guest booking ↗
         </a>
       </header>
@@ -857,7 +860,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                       {data?.manager && (
                         <a
                           className={styles.iconButton}
-                          href={`/api/openres/export?date=${date}`}
+                          href={`${paths.api}/export?date=${date}`}
                           aria-label="Download manager reservation export"
                         >
                           <ArrowDownToLine size={17} />

@@ -22,7 +22,7 @@ Demo mode uses synthetic reservations in an ignored SQLite file, binds to loopba
 
 Edit [`src/config/venue.ts`](src/config/venue.ts): venue name/contact details, IANA timezone, public links, seating areas and tables. Table positions are normalized coordinates between 0 and 1. The included floor is an original generic example, not a real venue's drawing. Configuration validation catches duplicate table IDs and invalid zones/areas. Rebuild after configuration changes; review active reservations before changing table IDs or capacities.
 
-Ordinary reservations go straight to date, party size and time. Sports-oriented venues can enable `features.fixtures` and populate [`src/config/fixtures.ts`](src/config/fixtures.ts). Then guests choose a fixture, **+ OTHER** or **SKIP**, with Other/Skip below the fixture list. `BookingWidget` also accepts `fixtures`, `initialMatch`, date/party/time prefills and `onBooked` for calendar integration.
+Ordinary reservations go straight to date, party size and time. Sports-oriented venues can enable `features.fixtures` and populate [`src/config/fixtures.ts`](src/config/fixtures.ts). Then guests choose a fixture, **+ OTHER** or **SKIP**, with Other/Skip below the fixture list. `BookingWidget` also accepts `fixtures`, `initialMatch`, date/party/time prefills and `onBooked` for calendar integration. A host site that mounts the components under its own routes wraps them in `OpenResPathsProvider` (`src/components/openres/paths.tsx`) to set the booking, management, staff and API paths; a standalone installation needs nothing.
 
 ## Visual theme
 

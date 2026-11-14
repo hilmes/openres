@@ -8,6 +8,7 @@ import {
   type Settings,
 } from "@/lib/openres/model";
 import { api, ErrorMessage } from "./shared";
+import { usePaths } from "./paths";
 import styles from "./openres.module.css";
 export function SettingsPanel({
   initial,
@@ -16,6 +17,7 @@ export function SettingsPanel({
   initial: Settings;
   onSaved: () => void;
 }) {
+  const paths = usePaths();
   const [settings, setSettings] = useState(() => structuredClone(initial));
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -30,7 +32,7 @@ export function SettingsPanel({
     setError("");
     try {
       const data = await api<{ settings: Settings }>(
-        "/api/openres/settings",
+        `${paths.api}/settings`,
         { method: "PUT", body: JSON.stringify(settings) },
       );
       setSettings(data.settings);
