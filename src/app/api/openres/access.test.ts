@@ -1,14 +1,15 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn() }));
+const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn(), purgeExpired:vi.fn(), eraseGuest:vi.fn() }));
 vi.mock('server-only',()=>({}));
 vi.mock('@/lib/openres/auth',()=>({currentStaff:mocks.currentStaff}));
 vi.mock('@/lib/openres/store',()=>({localMode:()=>false,...mocks}));
-vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn()}));
+vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
 vi.mock('@/lib/openres/email',()=>({sendReservationEmail:vi.fn()}));
 import { GET as desk } from './desk/route';
 import { GET as exportBook } from './export/route';
 import { GET as guest } from './reservations/[id]/route';
+import { POST as retention } from './retention/route';
 import { body } from '@/lib/openres/http';
 beforeEach(()=>{vi.clearAllMocks();vi.unstubAllEnvs();});
 it('rejects unauthenticated staff access before loading guest data',async()=>{
@@ -49,4 +50,22 @@ it('uses the configured HTTPS origin behind a proxy and rejects a forged host',a
   const request=(origin:string)=>new Request('http://localhost:4020/api/openres/desk',{method:'POST',headers:{Host:'unrelated.example',Origin:origin,'Content-Type':'application/json'},body:'{}'});
   await expect(body(request('https://book.example.com'))).resolves.toEqual({});
   await expect(body(request('http://unrelated.example'))).rejects.toMatchObject({status:403});
+});
+it('lets only managers run the retention pass or erase a guest',async()=>{
+  const call=(payload:unknown)=>retention(new Request('https://example.com/api/openres/retention',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+  mocks.currentStaff.mockResolvedValue(null);
+  expect((await call({action:'purge'})).status).toBe(401);
+  mocks.currentStaff.mockResolvedValue({actor:'host',manager:false});
+  expect((await call({action:'purge'})).status).toBe(403);
+  expect((await call({action:'erase',id:'550e8400-e29b-41d4-a716-446655440000'})).status).toBe(403);
+  expect(mocks.purgeExpired).not.toHaveBeenCalled();
+  expect(mocks.eraseGuest).not.toHaveBeenCalled();
+  mocks.currentStaff.mockResolvedValue({actor:'manager',manager:true});
+  mocks.purgeExpired.mockResolvedValue({removed:2,more:false,retentionDays:90});
+  mocks.eraseGuest.mockResolvedValue({erased:3});
+  expect(await (await call({action:'purge'})).json()).toEqual({removed:2,more:false,retentionDays:90});
+  expect(await (await call({action:'erase',id:'550e8400-e29b-41d4-a716-446655440000'})).json()).toEqual({erased:3});
+  expect(mocks.eraseGuest).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000','manager');
+  expect((await call({action:'erase',id:'not-a-uuid'})).status).toBe(400);
+  expect((await call({action:'everything'})).status).toBe(400);
 });

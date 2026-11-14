@@ -4,8 +4,11 @@ import { z } from "zod";
 import { venue } from '@/config/venue';
 const floorPlanRevision = createHash('sha256').update(JSON.stringify(venue.floor) + JSON.stringify(venue.tables)).digest('hex');
 import {
+  addDays,
   availableTables,
   BookingError,
+  FINAL_STATUSES,
+  FORMER_GUEST,
   bookingSchema,
   minutes,
   timeString,
@@ -19,7 +22,7 @@ import {
   type MatchPreference,
   type VisitHistory,
 } from "./model";
-import { consumeAuthLimit, localMode, withInventory } from "./store";
+import { claimOnce, consumeAuthLimit, localMode, readReservation, readSettings, withGuestRecords, withInventory } from "./store";
 import { visitorContact } from "./visitors";
 
 function secret() {
@@ -503,5 +506,92 @@ export async function updateSettings(raw: unknown, actor = "System") {
     });
     inventory.settings = { ...input, version: input.version + 1 };
     return inventory.settings;
+  });
+}
+
+/**
+ * Remove what identifies the guest and keep the visit: date, time, party, table, status and
+ * source stay for reporting. The record can no longer be matched to a returning guest, and
+ * its retry proof is dropped so the original browser cannot recover a receipt.
+ */
+export function anonymized(record: Reservation, actor: string, now = new Date()): Reservation {
+  const { requestKeyHash: _retry, ...rest } = record;
+  void _retry;
+  const at = now.toISOString();
+  const next: Reservation = {
+    ...rest,
+    name: FORMER_GUEST,
+    email: "",
+    phone: "",
+    notes: "",
+    staffNotes: "",
+    occasion: "",
+    // A typed match request is free text and can name people; a catalog fixture cannot.
+    match: record.match?.kind === "other" ? { kind: "none" } : record.match,
+    anonymizedAt: at,
+    updatedAt: at,
+    version: record.version + 1,
+  };
+  next.history = [
+    ...record.history,
+    { at, actor, action: "Guest details removed", version: next.version, fields: ["anonymized"], state: auditState(next) },
+  ];
+  return next;
+}
+const PURGE_BATCH = 500;
+/**
+ * Apply the venue's retention period: anonymize finished visits older than it. Active
+ * bookings are never touched. Returns how many records changed and whether more remain.
+ */
+export async function purgeExpired(actor = "System", now = new Date()) {
+  const days = (await readSettings()).retentionDays ?? null;
+  if (!days) return { removed: 0, more: false, retentionDays: null };
+  const before = addDays(venueNow(now).date, -days);
+  return withGuestRecords({ kind: "expired", before, limit: PURGE_BATCH }, (inventory) => {
+    // Re-read under the lock: a manager may have just switched retention off or lengthened it.
+    const current = inventory.settings.retentionDays ?? null;
+    if (!current) return { removed: 0, more: false, retentionDays: null };
+    const cutoff = addDays(venueNow(now).date, -current);
+    let removed = 0;
+    inventory.reservations = inventory.reservations.map((record) => {
+      if (record.anonymizedAt || record.date >= cutoff || !FINAL_STATUSES.includes(record.status)) return record;
+      removed++;
+      return anonymized(record, actor, now);
+    });
+    // Counts and the cutoff only: an audit entry must not carry what was just removed.
+    if (removed) inventory.audit.push({ actor, action: "retention_purge", scope: `before=${cutoff}; records=${removed}` });
+    return { removed, more: removed === PURGE_BATCH, retentionDays: current };
+  });
+}
+let purgeCheckedOn = "";
+/** Run the retention pass at most once per venue day, however many desks and server instances are open. */
+export async function purgeIfDue(now = new Date()) {
+  const today = venueNow(now).date;
+  if (purgeCheckedOn === today) return;
+  purgeCheckedOn = today;
+  try {
+    if (await claimOnce(`retention:${today}`, now.getTime() + 2 * 86400000)) await purgeExpired("System", now);
+  } catch (error) {
+    purgeCheckedOn = "";
+    console.error("[openres] retention pass failed", error instanceof Error ? error.name : "UnknownError");
+  }
+}
+/**
+ * A manager erases one guest on request: every retained record sharing that reservation's
+ * contact, whatever its age. Refused while the guest still has a booking in progress.
+ */
+export async function eraseGuest(id: string, actor: string, now = new Date()) {
+  const target = await readReservation(id);
+  if (!target) throw new BookingError("Reservation not found.", 404);
+  if (target.anonymizedAt) throw new BookingError("This guest's details were already removed.", 409);
+  const contact = visitorContact(target);
+  return withGuestRecords(contact ? { kind: "contact", contact } : { kind: "id", id }, (inventory) => {
+    const records = inventory.reservations.filter((record) => !record.anonymizedAt);
+    if (!records.some((record) => record.id === id)) throw new BookingError("This reservation changed. Refresh before trying again.", 409);
+    if (records.some((record) => !FINAL_STATUSES.includes(record.status)))
+      throw new BookingError("This guest has a booking in progress. Cancel or complete it first.", 409);
+    inventory.reservations = inventory.reservations.map((record) => (record.anonymizedAt ? record : anonymized(record, actor, now)));
+    inventory.audit.push({ actor, action: "guest_erasure", scope: `records=${records.length}; matched=${contact?.kind || "record"}` });
+    return { erased: records.length };
   });
 }

@@ -18,7 +18,7 @@ Use the repository's private security advisory reporting feature when available.
 
 ## Data handling
 
-No third-party analytics or replay SDK is included. Contact details and notes stay out of history projections, CSV and audit-state snapshots, but remain in operational reservation records. Optional email delivery shares reservation details with the configured provider. The operator must define retention and deletion-request procedures, including database backups, email delivery and infrastructure logs. Automatic erasure is not implemented in this release.
+No third-party analytics or replay SDK is included. Contact details and notes stay out of history projections, CSV and audit-state snapshots, but remain in operational reservation records. Optional email delivery shares reservation details with the configured provider. A manager can set a retention period that removes guest details from finished visits once a day, and can erase one guest on request (see README, Privacy and provenance). Both run inside the inventory transaction and write an audit entry with counts only. They do not reach database backups, email already delivered or infrastructure logs; the operator must define procedures for those. An erased visit can no longer be matched to a returning guest or recovered by replaying its creation request.
 
 Do not add logging of request bodies, tokens, passwords, connection strings or guest records. Do not cache guest data in localStorage, a service worker or public/CDN caches. Keep `.env.local`, `.openres`, backups and staff account configuration out of source control.
 

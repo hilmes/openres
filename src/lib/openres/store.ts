@@ -253,6 +253,63 @@ export async function withInventory<T>(
   id: string,
   mutate: (inventory: Inventory) => T,
 ): Promise<T> {
+  const seated = localMode()
+    ? "json_extract(payload, '$.status') = 'seated'"
+    : "payload->>'status' = 'seated'";
+  return transact(
+    `SELECT payload FROM openres_reservations WHERE service_date = $1 OR service_date = (SELECT service_date FROM openres_reservations WHERE id = $2) OR ${seated}`,
+    [date, id],
+    mutate,
+  );
+}
+/** Which stored records a retention or erasure pass loads. Never built from request text. */
+export type GuestRecordSelection =
+  | { kind: "expired"; before: string; limit: number }
+  | { kind: "contact"; contact: { kind: "email" | "phone"; value: string } }
+  | { kind: "id"; id: string };
+/** Load a set of guest records under the inventory lock so removal cannot race a booking change. */
+export async function withGuestRecords<T>(
+  selection: GuestRecordSelection,
+  mutate: (inventory: Inventory) => T,
+): Promise<T> {
+  const field = (name: string) => localMode() ? `json_extract(payload, '$.${name}')` : `payload->>'${name}'`;
+  const kept = `${field("anonymizedAt")} IS NULL`;
+  if (selection.kind === "expired")
+    return transact(
+      `SELECT payload FROM openres_reservations WHERE service_date < $1 AND ${field("status")} IN ('completed', 'cancelled', 'no_show') AND ${kept} ORDER BY service_date LIMIT ${Math.max(1, Math.min(1000, Math.floor(selection.limit)))}`,
+      [selection.before],
+      mutate,
+    );
+  if (selection.kind === "id")
+    return transact("SELECT payload FROM openres_reservations WHERE id = $1", [selection.id], mutate);
+  const phone = localMode()
+    ? "openres_phone_digits(json_extract(payload, '$.phone'))"
+    : "regexp_replace(COALESCE(payload->>'phone', ''), '[^0-9]', '', 'g')";
+  return transact(
+    selection.contact.kind === "email"
+      ? `SELECT payload FROM openres_reservations WHERE lower(trim(email)) = $1 AND ${kept}`
+      : `SELECT payload FROM openres_reservations WHERE trim(email) = '' AND ${phone} = $1 AND ${kept}`,
+    [selection.contact.value],
+    mutate,
+  );
+}
+/** True for the first caller with this key until it expires; used to run a job at most once a day. */
+export async function claimOnce(key: string, expires: number) {
+  const connection = await connect();
+  try {
+    await connection.query("DELETE FROM openres_limits WHERE expires < $1", [Date.now()]);
+    const { rows } = await connection.query(
+      "INSERT INTO openres_limits (key, hits, expires) VALUES ($1, 1, $2) ON CONFLICT (key) DO NOTHING RETURNING key",
+      [key, expires],
+    );
+    return rows.length > 0;
+  } finally { connection.release(); }
+}
+async function transact<T>(
+  select: string,
+  params: unknown[],
+  mutate: (inventory: Inventory) => T,
+): Promise<T> {
   let unlock: (() => void) | undefined;
   if (localMode()) {
     const previous = localQueue;
@@ -275,15 +332,7 @@ export async function withInventory<T>(
     const settings = configRows[0]
       ? decode<Settings>(configRows[0])
       : structuredClone(DEFAULT_SETTINGS);
-    const seated = localMode()
-      ? "json_extract(payload, '$.status') = 'seated'"
-      : "payload->>'status' = 'seated'";
-    const rows = (
-      await connection.query(
-        `SELECT payload FROM openres_reservations WHERE service_date = $1 OR service_date = (SELECT service_date FROM openres_reservations WHERE id = $2) OR ${seated}`,
-        [date, id],
-      )
-    ).rows;
+    const rows = (await connection.query(select, params)).rows;
     const reservations = rows.map((row) => decode<Reservation>(row));
     const previous = new Map(
       reservations.map((r) => [r.id, JSON.stringify(r)]),
