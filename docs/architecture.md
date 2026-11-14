@@ -22,6 +22,10 @@ Availability reads do not acquire the inventory write lock; they are advisory, a
 
 A seated overstay continues blocking its table until staff complete the visit. Walk-ins use the actual current minute. Moving a seated party checks the remaining visit against other bookings. Waitlist entries hold no inventory. There is no integration that silently imports external reservations or camera observations.
 
+## Retention and erasure
+
+`purgeExpired` and `eraseGuest` in `service.ts` anonymize records in place under the same transaction lock as bookings: the row keeps its ID, date, time, party, table, status and source, and loses everything that identifies the guest. `purgeIfDue` is called on staff desk reads and claims one run per venue day through `openres_limits`, so no scheduler is required and concurrent instances do not repeat the pass. Anonymized rows are excluded from repeat-visit matching because they no longer have a contact.
+
 ## Adapters and extension points
 
 Email delivery is optional and isolated in `email.ts`; the bundled adapter uses a venue-configured Resend sender. Fixtures default to an operator-managed catalog with no outbound feed request. Replace that adapter explicitly if a venue needs a licensed provider feed, preserving source IDs and capture timestamps. A fixture attestation is not a screening promise.
@@ -36,4 +40,4 @@ The application is MIT licensed. Dependency licenses remain their own and are re
 
 ## Known first-release work
 
-Automatic retention/deletion, individually expiring guest links, passkeys/SSO, multi-venue isolation, table combinations, overnight service, payments and notification channels beyond email are not implemented. Retention policy and physical tablet acceptance testing must precede a live venue rollout. These limits are surfaced in the README rather than represented as completed features.
+Individually expiring guest links, passkeys/SSO, multi-venue isolation, table combinations, overnight service, payments and notification channels beyond email are not implemented. A retention period and physical tablet acceptance testing must precede a live venue rollout. These limits are surfaced in the README rather than represented as completed features.

@@ -10,6 +10,7 @@ import {
 } from "@/lib/openres/store";
 import {
   createReservation,
+  purgeIfDue,
   updateReservation,
   visitHistory,
 } from "@/lib/openres/service";
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
     const access = await staffAccess(request, params.get("view") === "guests");
     if (access instanceof Response) return access;
     const date = dateSchema.parse(params.get("date") || venueNow().date);
+    await purgeIfDue();
     const [reservations, settings] = await Promise.all([
       readReservations(params.get("view") === "guests" ? undefined : date),
       readSettings(),

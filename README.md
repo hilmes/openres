@@ -57,7 +57,12 @@ For self-hosting, terminate HTTPS at a trusted reverse proxy. Keep the Node port
 - Private guest links put their capability token in the URL fragment, not a query string. API responses are `no-store`. The shared desk clears when hidden; Lock desk revokes the server-side session.
 - Booking changes carry actor, version, field names and seating state. Floor revisions are hashed. Signed fixture snapshots distinguish the operator's catalog from client-supplied details; this is source evidence, not a screening guarantee or a verified guest identity.
 
-Operational records still retain submitted contacts and notes. Automatic retention/deletion jobs are not included in this first release. Set a retention and deletion-request policy, account for backups/email-provider retention, and validate it before real guest intake. Application audit records are not an independently immutable ledger. See [SECURITY.md](SECURITY.md) and [docs/architecture.md](docs/architecture.md).
+Operational records hold submitted contacts and notes until they are removed. Two controls do that, both manager-only and both audited with counts, never with the details removed:
+
+- **Retention period** (Settings → Guest details, off by default). Once a day, finished visits (completed, cancelled, no-show) older than the period lose the guest's name, email, phone, notes, staff notes and any typed match request. Date, time, party size, table, status and source stay for reporting. Bookings still in progress are never touched. Managers can also run it on demand.
+- **Erase one guest** (Guest book → a guest → Erase this guest's details). Removes the same fields from every retained visit sharing that contact, whatever its age. It is refused while the guest has a booking in progress.
+
+Removal cannot be undone. It does not reach database backups, email already delivered by your provider, or infrastructure logs: set a policy for those, and validate it before real guest intake. Application audit records are not an independently immutable ledger. See [SECURITY.md](SECURITY.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Development checks
 

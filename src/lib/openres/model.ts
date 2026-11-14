@@ -27,6 +27,8 @@ export type Reservation = {
   id: string;
   /** Internal retry proof; never include in guest projections. */
   requestKeyHash?: string;
+  /** Set when retention or a manager removed this guest's details. The visit itself stays for reporting. */
+  anonymizedAt?: string;
   date: string;
   time: string;
   partySize: number;
@@ -203,6 +205,8 @@ export const settingsSchema = z.object({
     )
     .length(7),
   closedDates: z.array(dateSchema).max(365),
+  /** Days after a finished visit before guest details are removed. Null keeps them until a manager erases them. */
+  retentionDays: z.number().int().min(30).max(1095).nullable().default(null),
   version: z.number().int().min(1),
 });
 export type Settings = z.infer<typeof settingsSchema>;
@@ -214,6 +218,7 @@ export const DEFAULT_SETTINGS: Settings = {
   leadMinutes: 30,
   disabledTables: [],
   closedDates: [],
+  retentionDays: null,
   version: 1,
   hours: Array.from({ length: 7 }, () => ({
     open: 660,
@@ -379,6 +384,9 @@ export function availability(
   }
   return slots;
 }
+/** A visit that is over: nothing more will happen to it. */
+export const FINAL_STATUSES: Status[] = ["completed", "cancelled", "no_show"];
+export const FORMER_GUEST = "Former guest";
 export const TRANSITIONS: Record<Status, Status[]> = {
   confirmed: ["arrived", "seated", "cancelled", "no_show"],
   arrived: ["seated", "cancelled", "no_show"],

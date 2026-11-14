@@ -34,6 +34,7 @@ import {
   matchLabel,
   matchRequestValue,
   minutes,
+  FORMER_GUEST,
   STATUS_LABEL,
   TABLES,
   timeLabel,
@@ -353,6 +354,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
   const [editOpen, setEditOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [guest, setGuest] = useState<string | null>(null);
+  const [erasing, setErasing] = useState(false);
   const [floorTime, setFloorTime] = useState(() =>
     timeString(Math.floor(venueNow().minutes / 15) * 15),
   );
@@ -510,6 +512,23 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
       )
       .sort((a, b) => a[1][0].name.localeCompare(b[1][0].name));
   }, [data, search]);
+  /** Manager only: remove one guest's details from every retained visit. The server checks the role. */
+  async function eraseGuest(id: string) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ erased: number }>(`${paths.api}/retention`, { method: "POST", body: JSON.stringify({ action: "erase", id }) });
+      setGuest(null);
+      setErasing(false);
+      setNotice(`Guest details removed from ${result.erased} ${result.erased === 1 ? "visit" : "visits"}.`);
+      void load(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   async function update(changes: Record<string, unknown>) {
     if (!selected || busy) return false;
     const service = serviceGeneration.current;
@@ -1343,10 +1362,9 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
         </Modal>
       )}
       {guest && (
-        <Modal title="Guest history" onClose={() => setGuest(null)}>
+        <Modal busy={busy} title="Guest history" onClose={() => { setGuest(null); setErasing(false); setError(""); }}>
           <div className={styles.bookingForm}>
-            {guests
-              .find(([key]) => key === guest)?.[1]
+            {(guests.find(([key]) => key === guest)?.[1] || [])
               .map((r) => (
                 <div className={styles.guestHistoryItem} key={r.id}>
                   <strong>{r.name}</strong>
@@ -1359,6 +1377,28 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                   </span>
                 </div>
               ))}
+            {(() => {
+              const records = guests.find(([key]) => key === guest)?.[1] || [];
+              if (!records.length || records[0].name === FORMER_GUEST) return null;
+              return erasing ? (
+                <>
+                  <p>
+                    Remove {records[0].name}&rsquo;s name, contact details and notes from {records.length === 1 ? "this visit" : `these ${records.length} visits`}? {records.length === 1 ? "The visit stays" : "The visits stay"} in the book as &ldquo;{FORMER_GUEST}&rdquo;. This cannot be undone.
+                  </p>
+                  <ErrorMessage error={error} />
+                  <button className={styles.dangerButton} disabled={busy} onClick={() => eraseGuest(records[0].id)}>
+                    {busy ? "Removing…" : "Remove guest details"}
+                  </button>
+                  <button className={styles.secondaryButton} disabled={busy} onClick={() => { setErasing(false); setError(""); }}>
+                    Go back
+                  </button>
+                </>
+              ) : (
+                <button className={styles.secondaryButton} onClick={() => setErasing(true)}>
+                  Erase this guest&rsquo;s details…
+                </button>
+              );
+            })()}
           </div>
         </Modal>
       )}

@@ -22,6 +22,24 @@ export function SettingsPanel({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [purge, setPurge] = useState("");
+  // Run the retention pass against the saved period, never an unsaved edit.
+  const savedRetention = initial.retentionDays ?? null;
+  async function purgeNow() {
+    setBusy(true);
+    setError("");
+    setPurge("");
+    try {
+      const result = await api<{ removed: number; more: boolean }>(`${paths.api}/retention`, { method: "POST", body: JSON.stringify({ action: "purge" }) });
+      setPurge(result.removed
+        ? `Removed guest details from ${result.removed} past ${result.removed === 1 ? "reservation" : "reservations"}.${result.more ? " More remain; run it again." : ""}`
+        : "Nothing is past the retention period.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   function change(patch: Partial<Settings>) {
     setSettings((s) => ({ ...s, ...patch }));
     setSaved(false);
@@ -214,6 +232,34 @@ export function SettingsPanel({
             </label>
           ))}
         </div>
+      </section>
+      <section>
+        <h3>Guest details</h3>
+        <label>
+          Keep guest details after a visit
+          <select
+            value={settings.retentionDays ?? ""}
+            onChange={(e) => change({ retentionDays: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">Until a manager removes them</option>
+            {[30, 90, 180, 365, 730, 1095].map((days) => (
+              <option key={days} value={days}>
+                {days < 365 ? `${days} days` : `${days / 365} ${days === 365 ? "year" : "years"}`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className={styles.finePrint}>
+          After this, name, email, phone, notes and typed match requests are removed from completed,
+          cancelled and no-show reservations. The date, time, party size, table and status stay for
+          reporting. This runs once a day. It cannot be undone, and it does not reach database
+          backups or email already delivered.
+        </p>
+        <button type="button" className={styles.secondaryButton} disabled={busy || !savedRetention} onClick={purgeNow}>
+          Remove expired details now
+        </button>
+        {!savedRetention && <p className={styles.finePrint}>Choose a period and save to enable removal.</p>}
+        {purge && <p role="status" className={styles.success}>{purge}</p>}
       </section>
       <section>
         <h3>Closed dates</h3>

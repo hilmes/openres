@@ -6,11 +6,11 @@ import { Client } from 'pg';
 const jar=vi.hoisted(()=>({token:''}));
 vi.mock('server-only',()=>({}));
 vi.mock('next/headers',()=>({cookies:async()=>({get:()=>jar.token?{value:jar.token}:undefined,delete:()=>{jar.token='';}})}));
-import { createReservation, updateSettings } from './service';
+import { createReservation, eraseGuest, purgeExpired, purgeIfDue, updateSettings } from './service';
 import { DEFAULT_SETTINGS, TABLES } from './model';
 import { currentStaff, signIn, signOut } from './auth';
 import { hashPassword } from './password';
-import { readVisitSummaries } from './store';
+import { readReservation, readVisitSummaries } from './store';
 const url=process.env.OPENRES_TEST_DATABASE_URL;
 describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
   let client:Client;
@@ -66,4 +66,42 @@ describe.skipIf(!url)('isolated PostgreSQL integration',()=>{
     expect(JSON.stringify(result)).not.toContain('@example.com');
   });
 
+  describe('retention and erasure',()=>{
+    const past=async(patch:Record<string,unknown>={})=>{
+      const record={id:randomUUID(),date:'2026-09-01',time:'18:00',partySize:2,area:'any',tableId:'11',duration:90,name:'Dana Example',email:'dana@example.com',phone:'+1 (212) 555-0100',notes:'Allergy: shellfish',staffNotes:'Regular',occasion:'',status:'completed',source:'online',createdAt:'2026-08-20T12:00:00.000Z',updatedAt:'2026-09-01T23:00:00.000Z',version:1,history:[],match:{kind:'none'},...patch};
+      await client.query('INSERT INTO openres_reservations (id, service_date, email, payload) VALUES ($1,$2,$3,$4)',[record.id,record.date,record.email,JSON.stringify(record)]);
+      return record;
+    };
+    it('removes details from finished visits past the period and leaves active and recent ones',async()=>{
+      await updateSettings({...DEFAULT_SETTINGS,enabled:true,retentionDays:30},'manager');
+      const old=await past(), active=await past({status:'confirmed',email:'active@example.com'}), recent=await past({date:'2026-11-01',email:'recent@example.com'});
+      expect(await purgeExpired('System',now)).toEqual({removed:1,more:false,retentionDays:30});
+      const row=(await client.query('SELECT email, payload::text AS payload FROM openres_reservations WHERE id=$1',[old.id])).rows[0];
+      expect(row.email).toBe('');
+      expect(row.payload).not.toMatch(/dana|555|shellfish|Regular/i);
+      expect((await readReservation(active.id))?.email).toBe('active@example.com');
+      expect((await readReservation(recent.id))?.email).toBe('recent@example.com');
+      expect((await client.query("SELECT action, scope FROM openres_access_audit WHERE action='retention_purge'")).rows).toEqual([{action:'retention_purge',scope:'before=2026-10-14; records=1'}]);
+      expect((await purgeExpired('System',now)).removed).toBe(0);
+    });
+    it('claims the daily pass once across concurrent desks',async()=>{
+      await updateSettings({...DEFAULT_SETTINGS,enabled:true,retentionDays:30},'manager');
+      await past();
+      await Promise.all([purgeIfDue(now),purgeIfDue(now)]);
+      expect((await client.query("SELECT COUNT(*)::int AS n FROM openres_limits WHERE key LIKE 'retention:%'")).rows[0].n).toBe(1);
+      expect((await client.query("SELECT COUNT(*)::int AS n FROM openres_access_audit WHERE action='retention_purge'")).rows[0].n).toBe(1);
+    });
+    it('erases one guest by email or by phone digits and refuses while a booking is in progress',async()=>{
+      const visits=[await past(),await past({email:' Dana@Example.com ',date:'2025-03-01'})];
+      const other=await past({email:'other@example.com'});
+      expect(await eraseGuest(visits[0].id,'manager',now)).toEqual({erased:2});
+      expect((await readReservation(other.id))?.email).toBe('other@example.com');
+      const phone=[await past({email:'',phone:'212-555-0199'}),await past({email:'',phone:'(212) 555 0199'})];
+      expect(await eraseGuest(phone[1].id,'manager',now)).toEqual({erased:2});
+      const upcoming=await past({email:'busy@example.com'});
+      await past({email:'busy@example.com',status:'confirmed',date:'2026-11-20'});
+      await expect(eraseGuest(upcoming.id,'manager',now)).rejects.toMatchObject({status:409});
+      expect((await readReservation(upcoming.id))?.email).toBe('busy@example.com');
+    });
+  });
 });
