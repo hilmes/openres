@@ -16,6 +16,10 @@ Use the repository's private security advisory reporting feature when available.
 - Inventory writes and settings changes use a single-venue transaction lock in PostgreSQL. Every installation must have its own database. There is no tenant boundary for sharing one database among venues.
 - Audit records share the application's database trust boundary. They are not immutable or tamper-proof. Fixture attestations identify snapshots that passed through the configured catalog, not independently verified events.
 
+## Content Security Policy
+
+Every page is rendered per request with a fresh nonce (`src/proxy.ts`, `src/lib/openres/csp.ts`). Scripts and stylesheets run only with that nonce; nothing is loaded from another origin; `eval` is not allowed in production; forms and `fetch` may only reach this installation. Style attributes are allowed because the floor plan positions tables with them. API responses carry a deny-all policy. If you add a third-party script, font or embed, you must extend the policy deliberately; do not add `'unsafe-inline'` or `'unsafe-eval'` to make an error go away. The acceptance suite checks the headers and that every shipped script carries the nonce; a browser walk of the production build found no violations.
+
 ## Data handling
 
 No third-party analytics or replay SDK is included. Contact details and notes stay out of history projections, CSV and audit-state snapshots, but remain in operational reservation records. Optional email delivery shares reservation details with the configured provider. A manager can set a retention period that removes guest details from finished visits once a day, and can erase one guest on request (see README, Privacy and provenance). Both run inside the inventory transaction and write an audit entry with counts only. They do not reach database backups, email already delivered or infrastructure logs; the operator must define procedures for those. An erased visit can no longer be matched to a returning guest or recovered by replaying its creation request.

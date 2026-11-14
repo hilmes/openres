@@ -188,27 +188,35 @@ export async function readVisitSummaries(records: Reservation[]): Promise<Record
     const phone = localMode()
       ? "openres_phone_digits(json_extract(h.payload, '$.phone'))"
       : "regexp_replace(COALESCE(h.payload->>'phone', ''), '[^0-9]', '', 'g')";
-    // Bound batches keep SQLite/PostgreSQL parameter counts small for large services.
-    for (let start = 0; start < targets.length; start += 100) {
-      const batch = targets.slice(start, start + 100);
-      const params: string[] = [];
-      const values = batch.map(({ record, contact }) => {
-        const offset = params.length;
-        params.push(record.id, record.date, record.time, contact.kind, contact.value);
-        return `(${Array.from({ length: 5 }, (_, i) => `$${offset + i + 1}`).join(',')})`;
-      }).join(',');
-      const { rows } = await connection.query(`
-        WITH targets(id, visit_date, visit_time, kind, contact) AS (VALUES ${values})
-        SELECT t.id, COUNT(h.id) AS visits, MAX(h.service_date) AS last_visit
-        FROM targets t LEFT JOIN openres_reservations h ON
-          ${status} = 'completed' AND h.id <> t.id
-          AND (h.service_date < t.visit_date OR (h.service_date = t.visit_date AND ${time} < t.visit_time))
-          AND ((t.kind = 'email' AND lower(trim(h.email)) = t.contact)
-            OR (t.kind = 'phone' AND trim(h.email) = '' AND ${phone} = t.contact))
-        GROUP BY t.id`, params);
-      for (const row of rows) {
-        const id = String(row.id);
-        result[id] = { ...result[id], completedVisits: Number(row.visits), lastVisit: row.last_visit ? String(row.last_visit) : null };
+    // Email and phone guests are looked up separately. One join with "email OR phone" cannot use
+    // either partial index, and PostgreSQL may then compare every target with every past visit,
+    // running the phone regular expression each time: seconds for a 400-party service.
+    const lookups = {
+      email: "lower(trim(h.email)) = t.contact",
+      phone: `trim(h.email) = '' AND ${phone} = t.contact`,
+    } as const;
+    for (const kind of ["email", "phone"] as const) {
+      const ofKind = targets.filter(({ contact }) => contact.kind === kind);
+      // Bound batches keep SQLite/PostgreSQL parameter counts small for large services.
+      for (let start = 0; start < ofKind.length; start += 100) {
+        const batch = ofKind.slice(start, start + 100);
+        const params: string[] = [];
+        const values = batch.map(({ record, contact }) => {
+          const offset = params.length;
+          params.push(record.id, record.date, record.time, contact.value);
+          return `(${Array.from({ length: 4 }, (_, i) => `$${offset + i + 1}`).join(',')})`;
+        }).join(',');
+        const { rows } = await connection.query(`
+          WITH targets(id, visit_date, visit_time, contact) AS (VALUES ${values})
+          SELECT t.id, COUNT(h.id) AS visits, MAX(h.service_date) AS last_visit
+          FROM targets t LEFT JOIN openres_reservations h ON
+            ${status} = 'completed' AND ${lookups[kind]} AND h.id <> t.id
+            AND (h.service_date < t.visit_date OR (h.service_date = t.visit_date AND ${time} < t.visit_time))
+          GROUP BY t.id`, params);
+        for (const row of rows) {
+          const id = String(row.id);
+          result[id] = { ...result[id], completedVisits: Number(row.visits), lastVisit: row.last_visit ? String(row.last_visit) : null };
+        }
       }
     }
     return result;

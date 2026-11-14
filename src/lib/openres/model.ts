@@ -1,3 +1,4 @@
+import '@/config/zod';
 import { z } from "zod";
 import { venue } from '@/config/venue';
 import { wallTimeToISO } from './time';

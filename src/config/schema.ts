@@ -1,3 +1,4 @@
+import './zod';
 import { z } from 'zod';
 const optionalUrl = z.union([z.literal(''), z.string().url().refine(value => /^https?:\/\//.test(value))]);
 export const venueSchema = z.object({

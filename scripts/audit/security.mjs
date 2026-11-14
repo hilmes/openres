@@ -10,6 +10,26 @@ export async function security(c) {
     }
     assert.equal((await request('/api/openres/desk', { cookie: `openres-session=${'x'.repeat(43)}` })).status, 401);
   });
+  await check('pages carry a per-request nonce Content Security Policy and the API a deny-all one', async () => {
+    const nonces = new Set();
+    for (const [path, cookie] of [['/book', undefined], ['/manage', undefined], ['/staff/login', undefined], ['/staff', manager.cookie], ['/book', undefined]]) {
+      const page = await request(path, { cookie });
+      assert.equal(page.status, 200, path);
+      const policy = page.headers.get('content-security-policy') || '';
+      const nonce = policy.match(/'nonce-([A-Za-z0-9+/=]+)'/)?.[1];
+      assert(nonce, `${path} has no nonce`);
+      nonces.add(nonce);
+      for (const directive of ["default-src 'self'", "'strict-dynamic'", "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'self'", "connect-src 'self'"]) assert(policy.includes(directive), `${path}: ${directive}`);
+      assert(!policy.includes("'unsafe-eval'"), `${path} allows eval in production`);
+      assert(!/script-src[^;]*'unsafe-inline'/.test(policy), `${path} allows inline script`);
+      // Every script the page ships must carry this request's nonce, or the browser will refuse it.
+      const scripts = page.text.match(/<script\b[^>]*>/g) || [];
+      assert(scripts.length > 0, `${path} rendered no scripts`);
+      for (const tag of scripts) assert(tag.includes(`nonce="${nonce}"`), `${path}: script without the nonce: ${tag.slice(0, 80)}`);
+    }
+    assert.equal(nonces.size, 5, 'Each response needs a fresh nonce');
+    for (const path of ['/api/openres/availability', '/api/openres/fixtures']) assert.equal((await request(path)).headers.get('content-security-policy'), "default-src 'none'; frame-ancestors 'none'");
+  });
   await check('staff cookies are Secure, HttpOnly, SameSite Strict with bounded lifetime', async () => {
     for (const part of ['Secure', 'HttpOnly', 'SameSite=strict', 'Max-Age=28800', 'Path=/']) assert(manager.header.toLowerCase().includes(part.toLowerCase()), part);
   });

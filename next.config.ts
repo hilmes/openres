@@ -4,7 +4,7 @@ const config: NextConfig = {
   output: 'standalone',
   serverExternalPackages: ['better-sqlite3', 'pg'],
   poweredByHeader: false,
-  async headers() { return [{ source: '/:path*', headers: [
+  async headers() { return [{ source: '/api/:path*', headers: [{ key: 'Content-Security-Policy', value: "default-src 'none'; frame-ancestors 'none'" }] }, { source: '/:path*', headers: [
     { key: 'Referrer-Policy', value: 'no-referrer' },
     { key: 'X-Content-Type-Options', value: 'nosniff' },
     { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
