@@ -234,6 +234,35 @@ export function SettingsPanel({
         </div>
       </section>
       <section>
+        <h3>Waitlist</h3>
+        <label className={styles.checkLabel}>
+          <input
+            type="checkbox"
+            checked={!!settings.waitlistOffers}
+            onChange={(e) => change({ waitlistOffers: e.target.checked })}
+          />{" "}
+          Offer a freed table to the next waitlisted party by email
+        </label>
+        <label>
+          Minutes to confirm
+          <input
+            type="number"
+            min={5}
+            max={120}
+            value={settings.offerMinutes ?? 15}
+            disabled={!settings.waitlistOffers}
+            onChange={(e) => change({ offerMinutes: Number(e.target.value) })}
+            required
+          />
+        </label>
+        <p className={styles.finePrint}>
+          When a table frees up, it is held for the first waitlisted party it fits and they are
+          emailed a link to confirm. Guests cannot book a held table online; staff still can.
+          An offer that is not confirmed in time passes to the next party. Needs email delivery
+          to be configured.
+        </p>
+      </section>
+      <section>
         <h3>Guest details</h3>
         <label>
           Keep guest details after a visit

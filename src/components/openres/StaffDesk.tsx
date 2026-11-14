@@ -35,6 +35,7 @@ import {
   matchRequestValue,
   minutes,
   FORMER_GUEST,
+  liveOffer,
   STATUS_LABEL,
   TABLES,
   timeLabel,
@@ -63,6 +64,7 @@ type DeskData = {
   local: boolean;
 };
 type Tab = "reservations" | "waitlist" | "guests" | "settings";
+const offerTime = (iso: string) => new Date(iso).toLocaleTimeString(venue.locale, { hour: "numeric", minute: "2-digit", timeZone: venue.timeZone });
 type View = "list" | "floor" | "timeline";
 function NewReservation({
   date,
@@ -947,6 +949,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                                     {r.name}
                                     {!!data?.visitSummaries?.[r.id]?.completedVisits && <span className={styles.returning}>Returning · {data.visitSummaries[r.id].completedVisits} prior visits</span>}
                                     {r.occasion && <em>{r.occasion}</em>}
+                                    {liveOffer(r) && <span className={styles.returning}>Table {r.offer!.tableId} offered until {offerTime(r.offer!.expiresAt)}</span>}
                                   </strong>
                                   <small>
                                     {(r.match && r.match.kind !== "none"

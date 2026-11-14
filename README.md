@@ -48,6 +48,10 @@ Use a separate PostgreSQL database for each venue. The application is portable a
 
 For self-hosting, terminate HTTPS at a trusted reverse proxy. Keep the Node port private. Set `OPENRES_TRUST_PROXY=1` only when the proxy overwrites `X-Forwarded-For`; otherwise callers cannot supply their own rate-limit identity and requests share a conservative fallback bucket. No production data or credentials are needed for the demo.
 
+## Waitlist offers
+
+Off by default. With Settings → Waitlist switched on, a table freed by a cancellation, no-show, completed visit or move is held for the first waitlisted party it fits, and that party is emailed their private link to confirm within a set time (15 minutes by default). Guests cannot book a held table online; staff still can, and the offer then fails cleanly when the guest tries to confirm. An offer that is not confirmed passes to the next party, and the party that missed it keeps its place behind those who have missed fewer. Lapsed offers are passed on while a staff desk is open; no scheduler is required. This needs email delivery to be configured, and nothing is sent in demo mode.
+
 ## Privacy and provenance
 
 - No analytics, session replay, tracking fonts, enrichment or marketing integrations are included.
@@ -96,6 +100,6 @@ Custom guest booking integrations must send an independently generated UUID `req
 
 ## Current scope
 
-This is an initial implementation, not full feature parity with a commercial reservation platform. Bookings support 1–8 guests and one table per party, with service windows that finish within the same venue date. Payments, deposits, SMS, automatic waitlist offers, combined tables, multi-venue tenancy and passkeys/SSO are not included. No offline guest-data cache is used; booking and table changes require a connection. Physical iPad/browser acceptance testing is required before venue rollout.
+This is an initial implementation, not full feature parity with a commercial reservation platform. Bookings support 1–8 guests and one table per party, with service windows that finish within the same venue date. Payments, deposits, SMS, combined tables, multi-venue tenancy and passkeys/SSO are not included. No offline guest-data cache is used; booking and table changes require a connection. Physical iPad/browser acceptance testing is required before venue rollout.
 
 MIT licensed. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

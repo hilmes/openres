@@ -28,6 +28,10 @@ export type Reservation = {
   id: string;
   /** Internal retry proof; never include in guest projections. */
   requestKeyHash?: string;
+  /** A freed table held for this waitlisted party until it expires. The guest confirms from their private link. */
+  offer?: { tableId: string; offeredAt: string; expiresAt: string };
+  /** Offers this party let expire. They go behind parties that have missed fewer. */
+  offersMissed?: number;
   /** Set when retention or a manager removed this guest's details. The visit itself stays for reporting. */
   anonymizedAt?: string;
   date: string;
@@ -206,6 +210,10 @@ export const settingsSchema = z.object({
     )
     .length(7),
   closedDates: z.array(dateSchema).max(365),
+  /** Offer a freed table to the next waitlisted party by email instead of waiting for staff. */
+  waitlistOffers: z.boolean().default(false),
+  /** Minutes a waitlisted party has to confirm an offered table. */
+  offerMinutes: z.number().int().min(5).max(120).default(15),
   /** Days after a finished visit before guest details are removed. Null keeps them until a manager erases them. */
   retentionDays: z.number().int().min(30).max(1095).nullable().default(null),
   version: z.number().int().min(1),
@@ -220,6 +228,8 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledTables: [],
   closedDates: [],
   retentionDays: null,
+  waitlistOffers: false,
+  offerMinutes: 15,
   version: 1,
   hours: Array.from({ length: 7 }, () => ({
     open: 660,
@@ -307,6 +317,10 @@ export function validateSlot(
   )
     throw new BookingError("That time has passed. Please choose a later time.");
 }
+/** Whether a waitlisted party currently holds an offered table. */
+export function liveOffer(r: Pick<Reservation, "status" | "offer">, now = new Date()) {
+  return r.status === "waitlisted" && !!r.offer && Date.parse(r.offer.expiresAt) > now.getTime();
+}
 export function availableTables(
   input: Pick<BookingInput, "date" | "time" | "partySize" | "area">,
   reservations: Reservation[],
@@ -314,6 +328,8 @@ export function availableTables(
   ignoreId?: string,
   now = new Date(),
   duration = settings.duration,
+  /** Guests cannot book a table held for a waitlist offer; staff can, and the offer then fails at confirmation. */
+  respectOffers = true,
 ) {
   const start = minutes(input.time),
     end = start + duration;
@@ -327,6 +343,8 @@ export function availableTables(
     .filter(
       (t) =>
         !reservations.some((r) => {
+          if (respectOffers && r.id !== ignoreId && r.offer?.tableId === t.id && liveOffer(r, now))
+            return r.date === input.date && start < minutes(r.time) + r.duration && end > minutes(r.time);
           if (
             r.id === ignoreId ||
             r.tableId !== t.id ||
@@ -415,6 +433,8 @@ export function guestReservation(r: Reservation) {
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     version: r.version,
+    // The guest sees that a table is held and until when, never which table.
+    ...(r.status === "waitlisted" && r.offer ? { offer: { expiresAt: r.offer.expiresAt } } : {}),
     match: r.match || ({ kind: "none" } as MatchPreference),
   };
 }

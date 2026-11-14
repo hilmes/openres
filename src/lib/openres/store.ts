@@ -230,7 +230,7 @@ export async function readAvailabilityInventory(date: string) {
     const { rows: configRows } = await connection.query('SELECT payload FROM openres_settings WHERE id = 1');
     const status = localMode() ? "json_extract(payload, '$.status')" : "payload->>'status'";
     const { rows } = await connection.query(
-      `SELECT payload FROM openres_reservations WHERE (service_date = $1 AND ${status} IN ('confirmed', 'arrived', 'seated')) OR ${status} = 'seated'`,
+      `SELECT payload FROM openres_reservations WHERE (service_date = $1 AND ${status} IN ('confirmed', 'arrived', 'seated', 'waitlisted')) OR ${status} = 'seated'`,
       [date],
     );
     return { settings: configRows[0] ? decode<Settings>(configRows[0]) : structuredClone(DEFAULT_SETTINGS), reservations: rows.map(row => decode<Reservation>(row)) };

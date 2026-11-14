@@ -18,3 +18,20 @@ export async function sendReservationEmail(reservation: Reservation) {
     return !error;
   } catch { console.error('[openres] confirmation delivery failed'); return false; }
 }
+
+/** Tell a waitlisted party a table is being held for them, with the deadline and their private link. */
+export async function sendOfferEmail(reservation: Reservation) {
+  if (localMode() || !process.env.RESEND_API_KEY || !process.env.OPENRES_EMAIL_FROM || !reservation.email || !reservation.offer) return false;
+  try {
+    const base = new URL(process.env.OPENRES_BASE_URL || '');
+    if (base.protocol !== 'https:' && process.env.NODE_ENV === 'production') return false;
+    const link = `${base.origin}/manage#${reservation.id}.${managementToken(reservation.id)}`;
+    const until = new Date(reservation.offer.expiresAt).toLocaleTimeString(venue.locale, { hour: 'numeric', minute: '2-digit', timeZone: venue.timeZone });
+    const { error } = await new Resend(process.env.RESEND_API_KEY).emails.send({
+      from: process.env.OPENRES_EMAIL_FROM, replyTo: venue.contactEmail, to: reservation.email,
+      subject: `${venue.name}: a table is ready for you until ${until}`,
+      text: `Hi ${reservation.name},\n\nA table has opened at ${venue.name} for ${dateLabel(reservation.date)} at ${timeLabel(reservation.time)}, ${reservation.partySize} guests.\n\nWe are holding it for you until ${until} (${venue.timeZone}). Confirm it here:\n${link}\n\nIf you do not confirm by then, it goes to the next party and you stay on the waitlist.\n\nKeep this private link safe. Anyone with it can manage the reservation.\n\n${venue.name}`,
+    }, { idempotencyKey: `openres/offer/${reservation.id}/${reservation.offer.offeredAt}` });
+    return !error;
+  } catch { console.error('[openres] offer delivery failed'); return false; }
+}
