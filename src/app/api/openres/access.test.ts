@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn(), purgeExpired:vi.fn(), eraseGuest:vi.fn() }));
+const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn(), purgeExpired:vi.fn(), eraseGuest:vi.fn(), refundDepositNow:vi.fn() }));
 vi.mock('server-only',()=>({}));
 vi.mock('@/lib/openres/auth',()=>({currentStaff:mocks.currentStaff}));
 vi.mock('@/lib/openres/store',()=>({localMode:()=>false,...mocks}));
-vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),advanceWaitlist:vi.fn(async()=>[]),advanceWaitlistIfDue:vi.fn(async()=>[]),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
+vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),settleLapsedDeposits:vi.fn(),settleDeposit:vi.fn(),confirmPayment:vi.fn(),refundDepositNow:mocks.refundDepositNow,advanceWaitlist:vi.fn(async()=>[]),advanceWaitlistIfDue:vi.fn(async()=>[]),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
 vi.mock('@/lib/openres/email',()=>({sendReservationEmail:vi.fn(),sendOfferEmail:vi.fn()}));
-import { GET as desk } from './desk/route';
+import { GET as desk, PATCH as deskPatch } from './desk/route';
 import { GET as exportBook } from './export/route';
 import { GET as guest } from './reservations/[id]/route';
 import { POST as retention } from './retention/route';
@@ -68,4 +68,16 @@ it('lets only managers run the retention pass or erase a guest',async()=>{
   expect(mocks.eraseGuest).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000','manager');
   expect((await call({action:'erase',id:'not-a-uuid'})).status).toBe(400);
   expect((await call({action:'everything'})).status).toBe(400);
+});
+it('lets only a manager refund a deposit outside the policy',async()=>{
+  const call=()=>deskPatch(new Request('https://example.com/api/openres/desk',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'550e8400-e29b-41d4-a716-446655440000',action:'refund_deposit'})}));
+  mocks.currentStaff.mockResolvedValue(null);
+  expect((await call()).status).toBe(401);
+  mocks.currentStaff.mockResolvedValue({actor:'host',manager:false});
+  expect((await call()).status).toBe(403);
+  expect(mocks.refundDepositNow).not.toHaveBeenCalled();
+  mocks.currentStaff.mockResolvedValue({actor:'manager',manager:true});
+  mocks.refundDepositNow.mockResolvedValue({id:'550e8400-e29b-41d4-a716-446655440000',payment:{status:'refunded'}});
+  expect((await call()).status).toBe(200);
+  expect(mocks.refundDepositNow).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000','manager');
 });

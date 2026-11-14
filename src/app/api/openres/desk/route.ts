@@ -13,6 +13,9 @@ import {
   advanceWaitlistIfDue,
   createReservation,
   purgeIfDue,
+  refundDepositNow,
+  settleDeposit,
+  settleLapsedDeposits,
   updateReservation,
   visitHistory,
 } from "@/lib/openres/service";
@@ -24,6 +27,8 @@ export async function GET(request: Request) {
     if (access instanceof Response) return access;
     const date = dateSchema.parse(params.get("date") || venueNow().date);
     await purgeIfDue();
+    // Unpaid bookings past their time to pay are released here (after asking the provider).
+    if (params.get("view") !== "guests") await settleLapsedDeposits(date);
     // Lapsed waitlist offers pass to the next party here, so no scheduler is needed while a desk is open.
     if (params.get("view") !== "guests") await Promise.all((await advanceWaitlistIfDue(date)).map(sendOfferEmail));
     const [reservations, settings] = await Promise.all([
@@ -69,7 +74,13 @@ export async function PATCH(request: Request) {
       .object({ id: z.string().uuid() })
       .passthrough()
       .parse(await body(request));
-    const reservation = await updateReservation(raw.id, raw, access.actor);
+    // Manager only: return a deposit that was paid or kept, whatever the policy says.
+    if (raw.action === "refund_deposit") {
+      if (!access.manager) return json({ error: "Manager access is required." }, 403);
+      return json({ reservation: await refundDepositNow(raw.id, access.actor), emailed: false });
+    }
+    const updated = await updateReservation(raw.id, raw, access.actor);
+    const reservation = (["cancelled", "no_show", "completed"].includes(updated.status) ? await settleDeposit(raw.id) : null) || updated;
     const guestChange =
       ["date", "time", "partySize", "area", "match"].some(
         (key) => key in raw,
