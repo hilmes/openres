@@ -28,6 +28,8 @@ export type Reservation = {
   id: string;
   /** Internal retry proof; never include in guest projections. */
   requestKeyHash?: string;
+  /** The deposit taken for this booking, if the venue asks for one. */
+  payment?: Payment;
   /** A freed table held for this waitlisted party until it expires. The guest confirms from their private link. */
   offer?: { tableId: string; offeredAt: string; expiresAt: string };
   /** Offers this party let expire. They go behind parties that have missed fewer. */
@@ -88,6 +90,27 @@ export type Reservation = {
     };
   };
   match: MatchPreference;
+};
+/**
+ * A deposit's life: pending until the guest pays (the table is held until expiresAt), then paid.
+ * It ends as applied (the party came; it comes off the bill), refunded, forfeited (a late
+ * cancellation or no-show) or void (never paid).
+ */
+export type Payment = {
+  /** Integer minor units (cents). */
+  amount: number;
+  currency: string;
+  status: "pending" | "paid" | "applied" | "refunded" | "forfeited" | "void";
+  /** The provider's payment ID. Staff-only; never sent to the guest. */
+  intentId: string;
+  /** While pending: when the unpaid booking stops holding its table. */
+  expiresAt?: string;
+  /** The guest gets the deposit back if they cancel before this moment (the policy when they booked). */
+  refundableUntil: string;
+  paidAt?: string;
+  settledAt?: string;
+  /** A refund the provider refused; staff must resolve it with the provider. */
+  refundFailed?: boolean;
 };
 export type VisitSummary = {
   completedVisits: number;
@@ -187,6 +210,20 @@ export const bookingSchema = z.object({
   match: matchPreferenceSchema.default({ kind: "none" }),
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
+export const depositSchema = z.object({
+  enabled: z.boolean(),
+  /** Per guest, integer minor units (cents). */
+  perGuest: z.number().int().min(100).max(50000),
+  /** Smallest party that pays a deposit. */
+  minParty: z.number().int().min(1).max(8),
+  /** Only bookings that picked a fixture pay a deposit. */
+  fixturesOnly: z.boolean(),
+  /** A guest who cancels at least this many hours before the visit is refunded. */
+  refundHours: z.number().int().min(0).max(168),
+  /** Minutes an unpaid booking holds its table. */
+  payMinutes: z.number().int().min(5).max(60),
+});
+export const NO_DEPOSIT: z.infer<typeof depositSchema> = { enabled: false, perGuest: 2000, minParty: 1, fixturesOnly: false, refundHours: 24, payMinutes: 10 };
 export const settingsSchema = z.object({
   enabled: z.boolean(),
   duration: z.number().int().min(45).max(240).multipleOf(15),
@@ -210,6 +247,8 @@ export const settingsSchema = z.object({
     )
     .length(7),
   closedDates: z.array(dateSchema).max(365),
+  /** A deposit at booking, taken by the installation's payment provider. */
+  deposit: depositSchema.default(NO_DEPOSIT),
   /** Offer a freed table to the next waitlisted party by email instead of waiting for staff. */
   waitlistOffers: z.boolean().default(false),
   /** Minutes a waitlisted party has to confirm an offered table. */
@@ -228,6 +267,7 @@ export const DEFAULT_SETTINGS: Settings = {
   disabledTables: [],
   closedDates: [],
   retentionDays: null,
+  deposit: { ...NO_DEPOSIT },
   waitlistOffers: false,
   offerMinutes: 15,
   version: 1,
@@ -317,6 +357,19 @@ export function validateSlot(
   )
     throw new BookingError("That time has passed. Please choose a later time.");
 }
+/** The deposit an online booking owes under the venue's current rules, in minor units; 0 for none. */
+export function depositDue(input: { partySize: number; match?: MatchPreference }, settings: Pick<Settings, "deposit">) {
+  const rule = settings.deposit;
+  if (!rule?.enabled || input.partySize < rule.minParty || (rule.fixturesOnly && input.match?.kind !== "fixture")) return 0;
+  return rule.perGuest * input.partySize;
+}
+/** An unpaid booking whose time to pay has run out no longer holds its table. */
+export function depositLapsed(r: Pick<Reservation, "payment">, now = new Date()) {
+  return r.payment?.status === "pending" && Date.parse(r.payment.expiresAt || "") <= now.getTime();
+}
+export function moneyLabel(amount: number, currency: string) {
+  return new Intl.NumberFormat(venue.locale, { style: "currency", currency: currency.toUpperCase() }).format(amount / 100);
+}
 /** Whether a waitlisted party currently holds an offered table. */
 export function liveOffer(r: Pick<Reservation, "status" | "offer">, now = new Date()) {
   return r.status === "waitlisted" && !!r.offer && Date.parse(r.offer.expiresAt) > now.getTime();
@@ -347,6 +400,7 @@ export function availableTables(
             return r.date === input.date && start < minutes(r.time) + r.duration && end > minutes(r.time);
           if (
             r.id === ignoreId ||
+            depositLapsed(r, now) ||
             r.tableId !== t.id ||
             !["confirmed", "arrived", "seated"].includes(r.status)
           )
@@ -433,6 +487,8 @@ export function guestReservation(r: Reservation) {
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     version: r.version,
+    // The guest sees the amount and where it stands, never the provider's payment ID.
+    ...(r.payment ? { payment: { amount: r.payment.amount, currency: r.payment.currency, status: r.payment.status, expiresAt: r.payment.expiresAt, refundableUntil: r.payment.refundableUntil } } : {}),
     // The guest sees that a table is held and until when, never which table.
     ...(r.status === "waitlisted" && r.offer ? { offer: { expiresAt: r.offer.expiresAt } } : {}),
     match: r.match || ({ kind: "none" } as MatchPreference),

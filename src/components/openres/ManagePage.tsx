@@ -7,6 +7,7 @@ import {
   dateLabel,
   editedMatchPreference,
   matchLabel,
+  moneyLabel,
   matchRequestValue,
   STATUS_LABEL,
   timeLabel,
@@ -143,6 +144,19 @@ export function ManagePage() {
                 You’re on the waitlist. A table is not yet confirmed.
               </p>
             ))}
+            {reservation.payment && (
+              <p>
+                {moneyLabel(reservation.payment.amount, reservation.payment.currency)} deposit:{" "}
+                {({
+                  pending: "not completed. This booking is released if it is not paid. Book again to pay.",
+                  paid: `paid. It comes off your bill. Refunded if you cancel before ${new Date(reservation.payment.refundableUntil).toLocaleString(venue.locale, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: venue.timeZone })}.`,
+                  applied: "applied to your bill.",
+                  refunded: "refunded.",
+                  forfeited: "kept under the cancellation policy.",
+                  void: "not taken.",
+                })[reservation.payment.status]}
+              </p>
+            )}
             {reservation.notes && (
               <div className={styles.guestNote}>
                 <strong>Your notes</strong>

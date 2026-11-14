@@ -36,6 +36,7 @@ import {
   minutes,
   FORMER_GUEST,
   liveOffer,
+  moneyLabel,
   STATUS_LABEL,
   TABLES,
   timeLabel,
@@ -64,6 +65,14 @@ type DeskData = {
   local: boolean;
 };
 type Tab = "reservations" | "waitlist" | "guests" | "settings";
+const DEPOSIT_LABEL = {
+  pending: "not yet paid. The table is held until the time to pay runs out.",
+  paid: "paid. Take it off the bill when the party settles.",
+  applied: "applied to the bill.",
+  refunded: "refunded.",
+  forfeited: "kept (late cancellation or no-show).",
+  void: "never paid.",
+} as const;
 const offerTime = (iso: string) => new Date(iso).toLocaleTimeString(venue.locale, { hour: "numeric", minute: "2-digit", timeZone: venue.timeZone });
 type View = "list" | "floor" | "timeline";
 function NewReservation({
@@ -949,6 +958,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                                     {r.name}
                                     {!!data?.visitSummaries?.[r.id]?.completedVisits && <span className={styles.returning}>Returning · {data.visitSummaries[r.id].completedVisits} prior visits</span>}
                                     {r.occasion && <em>{r.occasion}</em>}
+                                    {r.payment && ["pending", "paid"].includes(r.payment.status) && <span className={styles.returning}>Deposit {r.payment.status === "paid" ? "paid" : "not yet paid"}</span>}
                                     {liveOffer(r) && <span className={styles.returning}>Table {r.offer!.tableId} offered until {offerTime(r.offer!.expiresAt)}</span>}
                                   </strong>
                                   <small>
@@ -1096,6 +1106,20 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                           <span>MATCH PREFERENCE</span>
                           <p>{matchLabel(selected.match)}</p>
                         </div>}
+                        {selected.payment && (
+                          <div className={styles.detailNote}>
+                            <span>DEPOSIT</span>
+                            <p>
+                              {moneyLabel(selected.payment.amount, selected.payment.currency)} {DEPOSIT_LABEL[selected.payment.status]}
+                              {selected.payment.refundFailed && " The provider refused a refund; resolve it there."}
+                            </p>
+                            {data?.manager && ["paid", "forfeited"].includes(selected.payment.status) && (
+                              <button className={styles.textButton} disabled={busy} onClick={() => update({ action: "refund_deposit" })}>
+                                Refund deposit
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <div className={styles.detailNote}>
                           <span>GUEST NOTES</span>
                           <p>{selected.notes || "No special requests."}</p>

@@ -16,6 +16,8 @@ export async function POST(request: Request) {
         reservation: guestReservation(result.reservation),
         token: result.token,
         emailed,
+        // Present when a deposit is due: the provider's form completes it in the browser.
+        ...("payment" in result && result.payment ? { payment: result.payment } : {}),
       },
       result.created ? 201 : 200,
     );

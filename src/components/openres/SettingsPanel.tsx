@@ -3,6 +3,7 @@ import { venue } from '@/config/venue';
 import { useState, type FormEvent } from "react";
 import {
   AREAS,
+  NO_DEPOSIT,
   TABLES,
   timeString,
   type Settings,
@@ -23,6 +24,7 @@ export function SettingsPanel({
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [purge, setPurge] = useState("");
+  const deposit = settings.deposit ?? NO_DEPOSIT;
   // Run the retention pass against the saved period, never an unsaved edit.
   const savedRetention = initial.retentionDays ?? null;
   async function purgeNow() {
@@ -232,6 +234,47 @@ export function SettingsPanel({
             </label>
           ))}
         </div>
+      </section>
+      <section>
+        <h3>Deposits</h3>
+        <label className={styles.checkLabel}>
+          <input type="checkbox" checked={deposit.enabled} onChange={(e) => change({ deposit: { ...deposit, enabled: e.target.checked } })} />{" "}
+          Take a deposit for online reservations
+        </label>
+        <div className={styles.formGrid}>
+          <label>
+            Per guest ($)
+            <input type="number" min={1} max={500} step={1} disabled={!deposit.enabled} value={deposit.perGuest / 100}
+              onChange={(e) => change({ deposit: { ...deposit, perGuest: Math.round(Number(e.target.value) * 100) } })} required />
+          </label>
+          <label>
+            Smallest party that pays
+            <input type="number" min={1} max={8} disabled={!deposit.enabled} value={deposit.minParty}
+              onChange={(e) => change({ deposit: { ...deposit, minParty: Number(e.target.value) } })} required />
+          </label>
+          <label>
+            Refund if cancelled this many hours ahead
+            <input type="number" min={0} max={168} disabled={!deposit.enabled} value={deposit.refundHours}
+              onChange={(e) => change({ deposit: { ...deposit, refundHours: Number(e.target.value) } })} required />
+          </label>
+          <label>
+            Minutes to pay
+            <input type="number" min={5} max={60} disabled={!deposit.enabled} value={deposit.payMinutes}
+              onChange={(e) => change({ deposit: { ...deposit, payMinutes: Number(e.target.value) } })} required />
+          </label>
+        </div>
+        {venue.features.fixtures && (
+          <label className={styles.checkLabel}>
+            <input type="checkbox" disabled={!deposit.enabled} checked={deposit.fixturesOnly} onChange={(e) => change({ deposit: { ...deposit, fixturesOnly: e.target.checked } })} />{" "}
+            Only for reservations that pick a match
+          </label>
+        )}
+        <p className={styles.finePrint}>
+          The guest pays by card before the reservation is confirmed, and the amount comes off their bill.
+          A guest who cancels in time is refunded automatically; later cancellations and no-shows keep the
+          deposit, and a manager can still refund it. Cancelling from the desk always refunds. Reservations
+          entered by staff and waitlist requests take no deposit. Changes apply to new reservations only.
+        </p>
       </section>
       <section>
         <h3>Waitlist</h3>

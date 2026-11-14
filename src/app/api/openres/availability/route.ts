@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paymentAdapter } from "@/config/payments";
 import {
   availability,
   areaSchema,
@@ -25,6 +26,8 @@ export async function GET(request: Request) {
       enabled: settings.enabled,
       advanceDays: settings.advanceDays,
       duration: settings.duration,
+      // The rule, so the guest sees the deposit before entering their details.
+      ...(settings.deposit?.enabled && paymentAdapter ? { deposit: { ...settings.deposit, currency: paymentAdapter.currency } } : {}),
     };
     return json({ ...data, date, partySize, local: localMode() });
   });
