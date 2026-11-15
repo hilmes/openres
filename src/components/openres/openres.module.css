@@ -2333,8 +2333,8 @@
 .sidePicker button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--control-border); border-radius: 2px; background: transparent; color: var(--ink); font-size: 13px; }
 .sidePicker button[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); font-weight: 600; }
 .sidePicker small { flex-basis: 100%; }
-.checkRow { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
-.checkRow input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 1px 0 0; padding: 0; }
+label.checkRow { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: 13px; font-weight: 400; line-height: 1.45; }
+label.checkRow input[type="checkbox"] { flex: none; width: 20px; height: 20px; min-height: 0; margin: 1px 0 0; padding: 0; }
 
 /* Desk: supporters booked for a service, and the manager's supporter list in the guest book. */
 .supporterTally, .supporterPanel { display: grid; gap: 10px; padding: 14px 0; margin-bottom: 14px; border-block: 1px solid var(--line); }
