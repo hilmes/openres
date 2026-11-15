@@ -1,15 +1,16 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn(), purgeExpired:vi.fn(), eraseGuest:vi.fn(), refundDepositNow:vi.fn() }));
+const mocks = vi.hoisted(() => ({ currentStaff:vi.fn(), readReservations:vi.fn(), readSettings:vi.fn(), recordAccessAudit:vi.fn(), readReservation:vi.fn(), visitHistory:vi.fn(), purgeExpired:vi.fn(), eraseGuest:vi.fn(), refundDepositNow:vi.fn(), supporterContacts:vi.fn(), supporterTeams:vi.fn() }));
 vi.mock('server-only',()=>({}));
 vi.mock('@/lib/openres/auth',()=>({currentStaff:mocks.currentStaff}));
 vi.mock('@/lib/openres/store',()=>({localMode:()=>false,...mocks}));
-vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),settleLapsedDeposits:vi.fn(),settleDeposit:vi.fn(),confirmPayment:vi.fn(),refundDepositNow:mocks.refundDepositNow,advanceWaitlist:vi.fn(async()=>[]),advanceWaitlistIfDue:vi.fn(async()=>[]),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest}));
+vi.mock('@/lib/openres/service',()=>({visitHistory:mocks.visitHistory,verifyManagementToken:(_id:string,token:string)=>token==='valid',createReservation:vi.fn(),updateReservation:vi.fn(),purgeIfDue:vi.fn(),settleLapsedDeposits:vi.fn(),settleDeposit:vi.fn(),confirmPayment:vi.fn(),refundDepositNow:mocks.refundDepositNow,advanceWaitlist:vi.fn(async()=>[]),advanceWaitlistIfDue:vi.fn(async()=>[]),purgeExpired:mocks.purgeExpired,eraseGuest:mocks.eraseGuest,supporterContacts:mocks.supporterContacts,supporterTeams:mocks.supporterTeams}));
 vi.mock('@/lib/openres/email',()=>({sendReservationEmail:vi.fn(),sendOfferEmail:vi.fn()}));
 import { GET as desk, PATCH as deskPatch } from './desk/route';
 import { GET as exportBook } from './export/route';
 import { GET as guest } from './reservations/[id]/route';
 import { POST as retention } from './retention/route';
+import { GET as supporters } from './supporters/route';
 import { body } from '@/lib/openres/http';
 beforeEach(()=>{vi.clearAllMocks();vi.unstubAllEnvs();});
 it('rejects unauthenticated staff access before loading guest data',async()=>{
@@ -80,4 +81,32 @@ it('lets only a manager refund a deposit outside the policy',async()=>{
   mocks.refundDepositNow.mockResolvedValue({id:'550e8400-e29b-41d4-a716-446655440000',payment:{status:'refunded'}});
   expect((await call()).status).toBe(200);
   expect(mocks.refundDepositNow).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000','manager');
+});
+it('keeps the supporter list to managers, lists only one team, and audits each list without naming anyone',async()=>{
+  const call=(query='')=>supporters(new Request(`https://example.com/api/openres/supporters${query}`));
+  mocks.currentStaff.mockResolvedValue(null);
+  expect((await call()).status).toBe(401);
+  mocks.currentStaff.mockResolvedValue({actor:'host',manager:false});
+  expect((await call('?team=Arsenal&format=csv')).status).toBe(403);
+  expect(mocks.readReservations).not.toHaveBeenCalled();
+  mocks.currentStaff.mockResolvedValue({actor:'manager',manager:true});
+  mocks.readReservations.mockResolvedValue([]);
+  mocks.supporterTeams.mockReturnValue([{team:'Arsenal',guests:3,contactable:1}]);
+  mocks.supporterContacts.mockReturnValue([
+    {name:'=Formula Guest',email:'asked@example.com',team:'Arsenal',askedAt:'2026-11-12T17:00:00.000Z',lastBooked:'2026-11-13',visits:2},
+    {name:'Other Guest',email:'other@example.com',team:'Chelsea',askedAt:'2026-11-12T17:00:00.000Z',lastBooked:'2026-11-13',visits:0},
+  ]);
+  expect(await (await call()).json()).toEqual({teams:[{team:'Arsenal',guests:3,contactable:1}]});
+  expect(mocks.recordAccessAudit).not.toHaveBeenCalled();
+  const file=await call('?team=Arsenal&format=csv');
+  expect(file.headers.get('Content-Type')).toContain('text/csv');
+  expect(file.headers.get('Content-Disposition')).toBe('attachment; filename="supporters-arsenal.csv"');
+  expect(file.headers.get('Cache-Control')).toBe('private, no-store');
+  const text=await file.text();
+  expect(text.split('\r\n')).toEqual([
+    '"Name","Email","Team","Asked for updates","Last booked","Completed visits"',
+    '"\'=Formula Guest","asked@example.com","Arsenal","2026-11-12","2026-11-13","2"',
+  ]);
+  expect(text).not.toContain('other@example.com');
+  expect(mocks.recordAccessAudit).toHaveBeenCalledWith('manager','supporter_list_export','records=1');
 });

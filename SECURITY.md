@@ -20,6 +20,10 @@ Use the repository's private security advisory reporting feature when available.
 
 Every page is rendered per request with a fresh nonce (`src/proxy.ts`, `src/lib/openres/csp.ts`). Scripts and stylesheets run only with that nonce; nothing is loaded from another origin; `eval` is not allowed in production; forms and `fetch` may only reach this installation. Style attributes are allowed because the floor plan positions tables with them. API responses carry a deny-all policy. If you add a third-party script, font or embed, you must extend the policy deliberately; do not add `'unsafe-inline'` or `'unsafe-eval'` to make an error go away. The acceptance suite checks the headers and that every shipped script carries the nonce; a browser walk of the production build found no violations.
 
+## Supporter lists
+
+The supporter list is the one place a guest's email leaves the reservation it was given for, so it is opt-in per team: only a guest can give that consent, from the booking form or their private link, and staff can only withdraw it. `GET /api/openres/supporters` is manager-only, lists a guest only for the team they asked about, and writes an access-audit entry with the number of records and no names. Removing a guest's details removes the consent with them.
+
 ## Deposits
 
 No card data reaches OpenRes: the provider's form collects it in the browser. OpenRes never trusts the browser's report of a payment; it asks the provider and checks the amount. The provider's payment ID is staff-only and is not included in guest responses. Refunds outside the stored policy require a manager. Provider keys belong in the environment, and webhook endpoints an installation adds must verify the provider's signature.

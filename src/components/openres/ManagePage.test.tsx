@@ -35,3 +35,22 @@ it("shows the plain waitlist message with no offer or once the offer has lapsed"
   expect(await screen.findByText(/You’re on the waitlist/)).toBeVisible();
   expect(screen.queryByRole("button", { name: "Confirm my table" })).toBeNull();
 });
+
+it("lets a guest change the team they are with and stop team emails from their link", async () => {
+  const fixture = { id: "match-1", date: "2026-11-21", time: "18:00", home: "Arsenal", away: "Chelsea", competition: "PL" };
+  const booked = { ...base, status: "confirmed", match: { kind: "fixture", fixture, side: "home" }, teamUpdates: { team: "Arsenal" } };
+  serve(booked, { ...booked, version: 3, match: { kind: "fixture", fixture, side: "away" }, teamUpdates: undefined });
+  render(<ManagePage />);
+  expect(await screen.findByText("Arsenal vs Chelsea (with Arsenal)")).toBeVisible();
+  expect(screen.getByText(/We will email you when Arsenal are showing here again/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: /Change reservation/ }));
+  expect(screen.getByLabelText("Supporting")).toHaveValue("home");
+  const optIn = screen.getByRole("checkbox", { name: /Email me when my team is showing/ });
+  expect(optIn).toBeChecked();
+  fireEvent.change(screen.getByLabelText("Supporting"), { target: { value: "away" } });
+  fireEvent.click(optIn);
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(sent.at(-1)).toMatchObject({ method: "PATCH", body: { match: { kind: "fixture", fixture, side: "away" }, teamUpdates: false } }));
+  expect(await screen.findByText("Arsenal vs Chelsea (with Chelsea)")).toBeVisible();
+  expect(screen.queryByText(/We will email you when/)).toBeNull();
+});

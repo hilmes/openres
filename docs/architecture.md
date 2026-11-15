@@ -26,6 +26,10 @@ A seated overstay continues blocking its table until staff complete the visit. W
 
 `purgeExpired` and `eraseGuest` in `service.ts` anonymize records in place under the same transaction lock as bookings: the row keeps its ID, date, time, party, table, status and source, and loses everything that identifies the guest. `purgeIfDue` is called on staff desk reads and claims one run per venue day through `openres_limits`, so no scheduler is required and concurrent instances do not repeat the pass. Anonymized rows are excluded from repeat-visit matching because they no longer have a contact.
 
+## Supporters
+
+A fixture match preference may carry `side` (`home` or `away`); `supportedTeam` resolves it to the team's name as the fixture spells it. `teamUpdates: { team, at }` on a reservation is the guest's consent to be emailed about that team. `updateReservation` drops it whenever the guest's team stops matching it, and refuses a staff request to set it. `supporterTally` (model) counts a service's booked guests per side; `supporterContacts` and `supporterTeams` (service) derive the manager's list from the reservations themselves, taking a guest's most recent booking per team, so there is no second copy of guest contact data to retain or erase.
+
 ## Deposits
 
 A reservation's `payment` moves from `pending` to `paid`, then to `applied`, `refunded`, `forfeited` or `void`. The provider is always the source of truth: `confirmPayment` reads success and amount from the adapter, never from the request. The adapter is called outside the inventory lock and the result is recorded under it, so a slow provider never blocks bookings. `depositLapsed` makes an unpaid, expired booking stop counting against availability immediately; `settleLapsedDeposits` (desk reads, once a minute per date) then confirms or cancels it. `settleDeposit` applies the cancellation policy stored on the payment when the guest booked.

@@ -15,6 +15,7 @@ import {
   moneyLabel,
   dateLabel,
   matchLabel,
+  supportedTeam,
   minutes,
   timeLabel,
   venueNow,
@@ -156,6 +157,7 @@ export function BookingWidget({
           notes: form.get("notes"),
           website: form.get("website"),
           match,
+          teamUpdates: form.get("teamUpdates") === "on",
           waitlist: selection.waitlist,
         }),
       });
@@ -237,6 +239,22 @@ export function BookingWidget({
                 </small>
               )}
             </div>
+            {match.kind === "fixture" && (
+              <fieldset className={styles.sidePicker}>
+                <legend>Who are you with?</legend>
+                {([["home", match.fixture.home], ["away", match.fixture.away], [undefined, "Neutral"]] as const).map(([side, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={match.side === side}
+                    onClick={() => setMatch(side ? { ...match, side } : { kind: "fixture", fixture: match.fixture })}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <small>Optional. It tells {venue.name} who to expect.</small>
+              </fieldset>
+            )}
             <button
               className={styles.textButton}
               onClick={() => {
@@ -491,6 +509,12 @@ export function BookingWidget({
                 placeholder="Anything we need to arrange for this visit?"
               />
             </label>
+            {supportedTeam(match) && (
+              <label className={styles.checkRow}>
+                <input type="checkbox" name="teamUpdates" />
+                <span>Email me when {supportedTeam(match)} are showing at {venue.name} again. Optional; you can stop it from your reservation link.</span>
+              </label>
+            )}
             <label className={styles.honeypot} aria-hidden="true">
               Website
               <input name="website" tabIndex={-1} autoComplete="off" />

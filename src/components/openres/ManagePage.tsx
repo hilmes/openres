@@ -94,7 +94,9 @@ export function ManagePage() {
       match: form.has("match") ? editedMatchPreference(
         reservation?.match,
         String(form.get("match") || ""),
+        form.get("side") ?? undefined,
       ) : reservation?.match,
+      ...(form.has("side") ? { teamUpdates: form.get("teamUpdates") === "on" } : {}),
     });
   }
   // Shown only while the hold is live; the server decides again when the guest confirms.
@@ -126,6 +128,7 @@ export function ManagePage() {
               {timeLabel(reservation.time)} · {reservation.partySize} guests
             </p>
             {(venue.features.fixtures || reservation.match?.kind !== "none") && <p>{matchLabel(reservation.match)}</p>}
+            {reservation.teamUpdates && <p>We will email you when {reservation.teamUpdates.team} are showing here again. Untick it under Change reservation to stop.</p>}
             <p>{venue.timeZone} · {reservation.duration} minute visit</p>
             <p>
               <MapPin size={16} /> {venue.address}
@@ -291,6 +294,18 @@ export function ManagePage() {
                     defaultValue={matchRequestValue(reservation.match)}
                     maxLength={240}
                   />
+                </label>}
+                {reservation.match?.kind === "fixture" && <label>
+                  Supporting
+                  <select name="side" defaultValue={reservation.match.side || "neutral"}>
+                    <option value="home">{reservation.match.fixture.home}</option>
+                    <option value="away">{reservation.match.fixture.away}</option>
+                    <option value="neutral">Neutral</option>
+                  </select>
+                </label>}
+                {reservation.match?.kind === "fixture" && <label className={styles.checkRow}>
+                  <input type="checkbox" name="teamUpdates" defaultChecked={!!reservation.teamUpdates} />
+                  <span>Email me when my team is showing at {venue.name} again. Needs a team chosen above.</span>
                 </label>}
                 <label>
                   Your notes
