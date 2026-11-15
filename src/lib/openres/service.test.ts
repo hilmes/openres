@@ -407,7 +407,7 @@ describe("privacy and authorization boundaries", () => {
     expect((await readReservation(reservation.id))?.phone).toBe("");
     expect(reservation.occasion).toBe("");
   });
-  it("projects venue history without exposing contacts, notes, fixture requests or audit actors", async () => {
+  it("projects venue history without exposing contacts, notes, typed match requests or audit actors", async () => {
     const { reservation } = await createReservation(
       input({ notes: "Private seating note" }),
       undefined,
@@ -426,8 +426,15 @@ describe("privacy and authorization boundaries", () => {
       "name",
       "partySize",
       "status",
+      "team",
+      "teamUpdates",
       "time",
     ]);
+    // The team comes only from a catalog fixture's side. A typed request is free text and never shown here.
+    expect(visit).toMatchObject({ team: null, teamUpdates: false });
+    const [typed] = visitHistory([{ ...reservation, match: { kind: "other", request: "My cousin Dana's club final" } }]);
+    expect(typed.team).toBeNull();
+    expect(JSON.stringify(typed)).not.toContain("Dana");
     expect(visit.guestKey).toMatch(/^[a-f0-9]{64}$/);
     expect(again.guestKey).toBe(visit.guestKey);
     expect(different.guestKey).not.toBe(visit.guestKey);

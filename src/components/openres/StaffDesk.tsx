@@ -54,6 +54,7 @@ import { tableReservationAt } from "./FloorMap";
 import { ShiftFloor } from "./ShiftFloor";
 import { SettingsPanel } from "./SettingsPanel";
 import { usePaths } from "./paths";
+import { SupporterPanel, SupporterTally } from "./Supporters";
 import styles from "./openres.module.css";
 
 type DeskData = {
@@ -273,6 +274,7 @@ function ReservationEditor({
             match: form.has("match") ? editedMatchPreference(
               r.match,
               String(form.get("match") || ""),
+              form.get("side") ?? undefined,
             ) : r.match,
           });
           if (success) onClose();
@@ -324,6 +326,14 @@ function ReservationEditor({
             defaultValue={matchRequestValue(r.match)}
             maxLength={240}
           />
+        </label>}
+        {r.match?.kind === "fixture" && <label>
+          Supporting
+          <select name="side" defaultValue={r.match.side || "neutral"}>
+            <option value="home">{r.match.fixture.home}</option>
+            <option value="away">{r.match.fixture.away}</option>
+            <option value="neutral">Neutral</option>
+          </select>
         </label>}
         <label>
           Guest notes
@@ -511,6 +521,8 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
         ? a.createdAt.localeCompare(b.createdAt)
         : a.time.localeCompare(b.time),
     );
+  /** Guest book only: show the guests who booked with this team. */
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
   const guests = useMemo(() => {
     const groups = new Map<string, VisitHistory[]>();
     (data?.visits || []).forEach((r) => {
@@ -521,8 +533,9 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
       .filter(([, records]) =>
         records[0].name.toLowerCase().includes(search.toLowerCase()),
       )
+      .filter(([, records]) => !teamFilter || records.some((r) => r.team === teamFilter))
       .sort((a, b) => a[1][0].name.localeCompare(b[1][0].name));
-  }, [data, search]);
+  }, [data, search, teamFilter]);
   /** Manager only: remove one guest's details from every retained visit. The server checks the role. */
   async function eraseGuest(id: string) {
     if (busy) return;
@@ -798,7 +811,10 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                   </div>
                 </div>
               )}
+              {tab === "reservations" && <SupporterTally reservations={reservations} />}
               {tab === "guests" ? (
+                <>
+                <SupporterPanel filter={teamFilter} onFilter={setTeamFilter} />
                 <div className={styles.guestBook}>
                   {loading ? (
                     <p className={styles.empty}>Loading guest history…</p>
@@ -820,7 +836,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                         </span>
                         <span>
                           <strong>{records[0].name}</strong>
-                          <small>Venue visit history</small>
+                          <small>{[...new Set(records.map((r) => r.team).filter(Boolean))].map((team) => `With ${team}`).join(" · ") || "Venue visit history"}</small>
                         </span>
                         <span>
                           {
@@ -837,6 +853,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                     ))
                   )}
                 </div>
+                </>
               ) : (
                 <>
                   <div className={styles.viewToolbar}>
@@ -1105,6 +1122,7 @@ export function StaffDesk({ local = false }: { local?: boolean }) {
                         {(venue.features.fixtures || selected.match?.kind !== "none") && <div className={styles.detailNote}>
                           <span>MATCH PREFERENCE</span>
                           <p>{matchLabel(selected.match)}</p>
+                          {selected.teamUpdates && <p>Asked to be emailed when {selected.teamUpdates.team} are showing again.</p>}
                         </div>}
                         {selected.payment && (
                           <div className={styles.detailNote}>

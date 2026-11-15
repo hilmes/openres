@@ -87,6 +87,31 @@ describe("fixture-first reservation flow", () => {
     expect(submitted?.requestKey).not.toEqual(submitted?.id);
     expect(submitted).not.toHaveProperty("occasion");
   });
+  it("asks which team the party is with and offers team emails only once a team is chosen", async () => {
+    render(<BookingWidget fixtures={[fixture]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Arsenal vs Chelsea/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reserve at 6:00 PM" }));
+    // Neutral until the guest says otherwise, and no opt-in to tick.
+    expect(screen.getByRole("button", { name: "Neutral" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("checkbox", { name: /Email me when/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Chelsea" }));
+    const optIn = screen.getByRole("checkbox", { name: /Email me when Chelsea are showing/ });
+    expect(optIn).not.toBeChecked();
+    fireEvent.click(optIn);
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "Test Guest" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "guest@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm reservation" }));
+    await screen.findByText("Your reservation is confirmed");
+    expect(submitted?.match).toEqual({ kind: "fixture", fixture, side: "away" });
+    expect(submitted?.teamUpdates).toBe(true);
+  });
+  it("sends no team and no opt-in when the guest leaves both alone", async () => {
+    render(<BookingWidget fixtures={[fixture]} />);
+    fireEvent.click(screen.getByRole("button", { name: /Arsenal vs Chelsea/ }));
+    await book();
+    expect(submitted?.match).toEqual({ kind: "fixture", fixture });
+    expect(submitted?.teamUpdates).toBe(false);
+  });
   it("requires an Other match request and carries it through confirmation", async () => {
     render(<BookingWidget fixtures={[fixture]} initialDate={date} />);
     fireEvent.click(screen.getByRole("button", { name: "OTHER" }));

@@ -48,6 +48,16 @@ Use a separate PostgreSQL database for each venue. The application is portable a
 
 For self-hosting, terminate HTTPS at a trusted reverse proxy. Keep the Node port private. Set `OPENRES_TRUST_PROXY=1` only when the proxy overwrites `X-Forwarded-For`; otherwise callers cannot supply their own rate-limit identity and requests share a conservative fallback bucket. No production data or credentials are needed for the demo.
 
+## Supporters
+
+For venues with fixtures switched on. A guest who books a fixture can say which team they are with (or stay neutral), and can tick a box to be emailed when that team is showing again. The box is never ticked for them.
+
+- The side shows on the reservation everywhere staff see it, and the desk counts the guests booked for each side of each fixture.
+- A guest can change their team or stop the emails from their private link. Changing team or match ends the request; staff can stop it for a guest but cannot start it.
+- In the guest book a manager sees how many guests have booked with each team, can filter the book by team, and can download a CSV of the guests who asked to hear about a team (name, email, when they asked, last booking, completed visits). Guests who did not ask are counted, never listed. Each list is recorded in the access audit.
+- A guest is on a team's list if their most recent booking with that team carries the request. Retention and erasure remove them.
+- OpenRes does not send these emails. The CSV is for the venue's own email tool, and the venue is responsible for an unsubscribe link and for its local marketing rules.
+
 ## Deposits
 
 Off by default, and unavailable until the installation supplies a payment provider. OpenRes bundles none: implement the four-function `PaymentAdapter` (`src/lib/openres/payments.ts`) in `src/config/payments.ts`, and give the booking widget the provider's card form through `OpenResPaymentProvider` (`src/components/openres/payment.tsx`). Card details go from the browser straight to the provider; OpenRes stores an amount, a status and the provider's payment ID.

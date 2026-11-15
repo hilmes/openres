@@ -34,6 +34,11 @@ export type Reservation = {
   offer?: { tableId: string; offeredAt: string; expiresAt: string };
   /** Offers this party let expire. They go behind parties that have missed fewer. */
   offersMissed?: number;
+  /**
+   * The guest asked to be emailed when this team is showing again. Only the guest can give it,
+   * and it is the only basis on which their address appears in the manager's supporter list.
+   */
+  teamUpdates?: { team: string; at: string };
   /** Set when retention or a manager removed this guest's details. The visit itself stays for reporting. */
   anonymizedAt?: string;
   date: string;
@@ -120,7 +125,7 @@ export type VisitSummary = {
 export type VisitHistory = Pick<
   Reservation,
   "id" | "name" | "date" | "time" | "partySize" | "status"
-> & { guestKey: string };
+> & { guestKey: string; team: string | null; teamUpdates: boolean };
 export const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -143,7 +148,8 @@ export const fixtureSchema = z.object({
 });
 export type BookingFixture = z.infer<typeof fixtureSchema>;
 export const matchPreferenceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("fixture"), fixture: fixtureSchema }),
+  // The side the party is with; leaving it out means neutral.
+  z.object({ kind: z.literal("fixture"), fixture: fixtureSchema, side: z.enum(["home", "away"]).optional() }),
   z.object({
     kind: z.literal("other"),
     request: z
@@ -160,7 +166,23 @@ export function matchLabel(match?: MatchPreference) {
     ? "No match preference"
     : match.kind === "other"
       ? `Requested: ${match.request}`
-      : `${match.fixture.home} vs ${match.fixture.away}`;
+      : `${match.fixture.home} vs ${match.fixture.away}${match.side ? ` (with ${match.fixture[match.side]})` : ""}`;
+}
+/** The team a party said they are with, exactly as the fixture spells it. */
+export function supportedTeam(match?: MatchPreference | null) {
+  return match?.kind === "fixture" && match.side ? match.fixture[match.side] : null;
+}
+const TALLIED: Status[] = ["confirmed", "arrived", "seated", "waitlisted"];
+/** Guests booked for each fixture by the side they are with, for seating and for choosing screens. */
+export function supporterTally(reservations: Pick<Reservation, "match" | "partySize" | "status">[]) {
+  const tally = new Map<string, { fixture: BookingFixture; home: number; away: number; neutral: number }>();
+  for (const r of reservations) {
+    if (r.match?.kind !== "fixture" || !TALLIED.includes(r.status)) continue;
+    const row = tally.get(r.match.fixture.id) || { fixture: r.match.fixture, home: 0, away: 0, neutral: 0 };
+    row[r.match.side || "neutral"] += r.partySize;
+    tally.set(r.match.fixture.id, row);
+  }
+  return [...tally.values()].sort((a, b) => a.fixture.time.localeCompare(b.fixture.time));
 }
 export function matchRequestValue(match?: MatchPreference) {
   return !match || match.kind === "none"
@@ -172,12 +194,14 @@ export function matchRequestValue(match?: MatchPreference) {
 export function editedMatchPreference(
   current: MatchPreference | undefined,
   value: string,
+  /** "home", "away" or anything else for neutral; leave out to keep the side as it is. */
+  side?: unknown,
 ): MatchPreference {
   const request = value.trim();
   if (!request) return { kind: "none" };
-  return current && request === matchRequestValue(current)
-    ? current
-    : { kind: "other", request };
+  if (!current || request !== matchRequestValue(current)) return { kind: "other", request };
+  if (current.kind !== "fixture" || side === undefined || side === null) return current;
+  return side === "home" || side === "away" ? { ...current, side } : { kind: "fixture", fixture: current.fixture };
 }
 export const bookingSchema = z.object({
   id: z.string().uuid(),
@@ -208,6 +232,8 @@ export const bookingSchema = z.object({
   occasion: z.string().trim().max(80).default(""),
   website: z.string().max(0).optional(),
   match: matchPreferenceSchema.default({ kind: "none" }),
+  /** The guest ticked "email me when my team is showing again". Counts only with a side chosen. */
+  teamUpdates: z.boolean().default(false),
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 export const depositSchema = z.object({
@@ -492,6 +518,7 @@ export function guestReservation(r: Reservation) {
     // The guest sees that a table is held and until when, never which table.
     ...(r.status === "waitlisted" && r.offer ? { offer: { expiresAt: r.offer.expiresAt } } : {}),
     match: r.match || ({ kind: "none" } as MatchPreference),
+    ...(r.teamUpdates ? { teamUpdates: { team: r.teamUpdates.team } } : {}),
   };
 }
 export type GuestReservation = ReturnType<typeof guestReservation>;

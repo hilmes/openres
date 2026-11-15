@@ -2324,3 +2324,27 @@
   background-repeat: no-repeat;
 }
 .planTable small { white-space: nowrap; font-size: 10px; }
+
+/* The supporter side under a picked fixture, and the opt-in beside it. */
+.chosenMatch { flex-wrap: wrap; }
+.chosenMatch > div { flex: 1; min-width: 0; }
+.sidePicker { order: 3; flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; padding: 0; border: 0; }
+.sidePicker legend { float: left; margin-right: 6px; padding: 0; font-size: 12px; color: var(--muted); }
+.sidePicker button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--control-border); border-radius: 2px; background: transparent; color: var(--ink); font-size: 13px; }
+.sidePicker button[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); font-weight: 600; }
+.sidePicker small { flex-basis: 100%; }
+.checkRow { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
+.checkRow input { flex: none; width: 20px; height: 20px; min-height: 0; margin: 1px 0 0; padding: 0; }
+
+/* Desk: supporters booked for a service, and the manager's supporter list in the guest book. */
+.supporterTally, .supporterPanel { display: grid; gap: 10px; padding: 14px 0; margin-bottom: 14px; border-block: 1px solid var(--line); }
+.supporterTally h2, .supporterPanel h2 { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.supporterTally ul, .supporterPanel ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.supporterTally li { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; }
+.supporterTally time { min-width: 72px; color: var(--muted); }
+.supporterTally strong { font-weight: 600; }
+.supporterPanel p { font-size: 12px; color: var(--muted); }
+.supporterPanel li { display: flex; align-items: center; gap: 8px; }
+.supporterPanel li button { flex: 1; display: grid; gap: 2px; min-height: 44px; padding: 8px 12px; text-align: left; border: 1px solid var(--control-border); border-radius: 2px; background: transparent; color: var(--ink); }
+.supporterPanel li button[aria-pressed="true"] { background: var(--accent-wash); border-color: var(--accent); }
+.supporterPanel li button small { color: var(--muted); font-size: 12px; }

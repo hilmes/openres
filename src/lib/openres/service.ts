@@ -25,6 +25,7 @@ import {
   type BookingFixture,
   type MatchPreference,
   type Payment,
+  supportedTeam,
   type VisitHistory,
 } from "./model";
 import { wallTimeToISO } from "./time";
@@ -66,6 +67,8 @@ export function visitHistory(records: Reservation[]): VisitHistory[] {
       time: r.time,
       partySize: r.partySize,
       status: r.status,
+      team: supportedTeam(r.match),
+      teamUpdates: !!r.teamUpdates,
       guestKey: createHmac("sha256", secret())
         .update(`openres:venue-visit-history:${identity}`)
         .digest("hex"),
@@ -274,6 +277,8 @@ export async function createReservation(
         occasion: input.occasion,
         staffNotes: "",
         match: input.match,
+        // Consent is the guest's to give: a booking entered by staff never carries it.
+        ...(!actor && input.teamUpdates && supportedTeam(input.match) ? { teamUpdates: { team: supportedTeam(input.match)!, at } } : {}),
         provenance: {
           system: "OpenRes",
           environment: localMode() ? "local_preview" : "live",
@@ -350,6 +355,8 @@ export const updateSchema = z.object({
     notes: bookingSchema.shape.notes.removeDefault().optional(),
     occasion: bookingSchema.shape.occasion.removeDefault().optional(),
     match: bookingSchema.shape.match.removeDefault().optional(),
+    /** true: email me about my team (guest only). false: stop. */
+    teamUpdates: z.boolean().optional(),
     version: z.number().int().positive(),
     status: z.enum(STATUSES).optional(),
     tableId: z.string().optional(),
@@ -378,6 +385,9 @@ export async function updateReservation(
         (input.status && input.status !== "cancelled" && !(input.status === "confirmed" && liveOffer(record, now))))
     )
       throw new BookingError("This action is for staff only.", 403);
+    const { teamUpdates: wantsUpdates, ...changes } = input;
+    if (actor && wantsUpdates)
+      throw new BookingError("Only the guest can ask to hear about their team.", 403);
     if (!actor && !["confirmed", "waitlisted"].includes(record.status))
       throw new BookingError(
         "Please contact the venue to change this reservation.",
@@ -402,7 +412,7 @@ export async function updateReservation(
       throw new BookingError("This status change is not available.", 409);
     const next = {
       ...record,
-      ...input,
+      ...changes,
       version: record.version + 1,
       updatedAt: now.toISOString(),
     };
@@ -410,6 +420,10 @@ export async function updateReservation(
       throw new BookingError(
         "The fixture is on a different date. Change the match preference before moving your booking.",
       );
+    // Consent is for one team: it ends when the guest withdraws it or is no longer with that team.
+    const team = supportedTeam(next.match);
+    if (wantsUpdates === false || next.teamUpdates?.team !== team) delete next.teamUpdates;
+    if (wantsUpdates && team) next.teamUpdates = record.teamUpdates?.team === team ? record.teamUpdates : { team, at: next.updatedAt };
     const changesSlot =
       input.date !== undefined ||
       input.time !== undefined ||
@@ -515,7 +529,9 @@ export async function updateReservation(
               ? "Updated reservation / table"
               : input.match
                 ? "Changed match preference"
-                : "Updated notes",
+                : wantsUpdates !== undefined
+                  ? wantsUpdates ? "Asked for team updates" : "Stopped team updates"
+                  : "Updated notes",
       },
     ];
     inventory.reservations[inventory.reservations.indexOf(record)] = next;
@@ -568,6 +584,7 @@ export function anonymized(record: Reservation, actor: string, now = new Date())
     occasion: "",
     // A typed match request is free text and can name people; a catalog fixture cannot.
     match: record.match?.kind === "other" ? { kind: "none" } : record.match,
+    teamUpdates: undefined,
     anonymizedAt: at,
     updatedAt: at,
     version: record.version + 1,
@@ -823,4 +840,42 @@ export async function settleLapsedDeposits(date: string, now = new Date(), force
   } catch (error) {
     console.error("[openres] deposit pass failed", error instanceof Error ? error.name : "UnknownError");
   }
+}
+
+export type SupporterContact = { name: string; email: string; team: string; askedAt: string; lastBooked: string; visits: number };
+/**
+ * The guests a venue may email about a team: those whose most recent booking with that team
+ * carries their consent. A later booking for the same team without it, or a withdrawal, takes
+ * them off; so does retention or erasure, which removes the address itself.
+ */
+export function supporterContacts(records: Reservation[]): SupporterContact[] {
+  const latest = new Map<string, Reservation>();
+  const visits = new Map<string, number>();
+  for (const r of records) {
+    const team = supportedTeam(r.match);
+    if (!team || !r.email || r.anonymizedAt) continue;
+    const key = JSON.stringify([r.email, team]);
+    if (r.status === "completed") visits.set(key, (visits.get(key) || 0) + 1);
+    const seen = latest.get(key);
+    if (!seen || seen.createdAt < r.createdAt) latest.set(key, r);
+  }
+  return [...latest.entries()]
+    .filter(([, r]) => r.teamUpdates)
+    .map(([key, r]) => ({ name: r.name, email: r.email, team: r.teamUpdates!.team, askedAt: r.teamUpdates!.at, lastBooked: r.date, visits: visits.get(key) || 0 }))
+    .sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
+}
+/** Per team: how many distinct guests have booked with it, and how many of them may be emailed. */
+export function supporterTeams(records: Reservation[]) {
+  const guests = new Map<string, Set<string>>();
+  for (const r of records) {
+    const team = supportedTeam(r.match);
+    if (!team || r.anonymizedAt) continue;
+    const contact = visitorContact(r);
+    guests.set(team, (guests.get(team) || new Set()).add(contact ? `${contact.kind}:${contact.value}` : r.id));
+  }
+  const contactable = new Map<string, number>();
+  for (const c of supporterContacts(records)) contactable.set(c.team, (contactable.get(c.team) || 0) + 1);
+  return [...guests.entries()]
+    .map(([team, set]) => ({ team, guests: set.size, contactable: contactable.get(team) || 0 }))
+    .sort((a, b) => b.guests - a.guests || a.team.localeCompare(b.team));
 }
