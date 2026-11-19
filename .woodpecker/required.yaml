@@ -38,9 +38,9 @@ steps:
     commands:
       - |-
         if [ "$CI_PIPELINE_EVENT" = pull_request ]; then
-          test "$(git rev-parse HEAD^2)" = "$CI_COMMIT_SHA"
+          test "$(git -c safe.directory="$PWD" rev-parse HEAD^2)" = "$CI_COMMIT_SHA"
         else
-          test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"
+          test "$(git -c safe.directory="$PWD" rev-parse HEAD)" = "$CI_COMMIT_SHA"
         fi
   - name: install
     image: node:24-bookworm
