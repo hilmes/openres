@@ -1,0 +1,71 @@
+when:
+  - event:
+      - push
+      - pull_request
+      - manual
+labels:
+  backend: docker
+  pool: projects-linux
+clone:
+  - name: event-sha
+    image: docker.io/woodpeckerci/plugin-git:2.11.0
+    settings:
+      ref: ${CI_COMMIT_SHA}
+      depth: 2
+      partial: false
+    when:
+      - event:
+          - manual
+          - push
+  - name: merge-ref
+    image: docker.io/woodpeckerci/plugin-git:2.11.0
+    settings:
+      ref: ${CI_COMMIT_REF}
+      depth: 2
+      partial: false
+    when:
+      - event:
+          - pull_request
+services:
+  - name: postgres
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: openres-test-only
+      POSTGRES_DB: openres_test
+steps:
+  - name: verify-revision
+    image: alpine/git:2.49.1
+    commands:
+      - |-
+        if [ "$CI_PIPELINE_EVENT" = pull_request ]; then
+          test "$(git -c safe.directory="$PWD" rev-parse HEAD^2)" = "$CI_COMMIT_SHA"
+        else
+          test "$(git -c safe.directory="$PWD" rev-parse HEAD)" = "$CI_COMMIT_SHA"
+        fi
+  - name: install
+    image: node:24-bookworm
+    commands:
+      - npm ci
+  - name: validate
+    image: node:24-bookworm
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends socat postgresql-client
+      - socat TCP4-LISTEN:5432,bind=127.0.0.1,reuseaddr,fork TCP4:postgres:5432 &
+      - for attempt in $(seq 1 45); do pg_isready -q -h 127.0.0.1 -p 5432 && break; sleep 1; done
+      - pg_isready -h 127.0.0.1 -p 5432
+      - OPENRES_TEST_DATABASE_URL='postgres://postgres:openres-test-only@127.0.0.1:5432/openres_test' npm run check
+      - NEXT_BUILD_DIR='.next-audit' npm run build
+      - OPENRES_TEST_DATABASE_URL='postgres://postgres:openres-test-only@127.0.0.1:5432/openres_test' node scripts/audit/index.mjs
+      - npm audit --omit=dev --audit-level=high
+  - name: audit-report
+    image: node:24-bookworm
+    commands:
+      - if test -f .openres/audit/results.json; then cat .openres/audit/results.json; fi
+    when:
+      - event:
+          - push
+          - pull_request
+          - manual
+        status:
+          - success
+          - failure
